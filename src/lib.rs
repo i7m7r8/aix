@@ -12,6 +12,7 @@ use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use log::LevelFilter;
 use std::time::{SystemTime, Duration};
 use walkdir::WalkDir;
 use zip::read::ZipArchive;
@@ -841,7 +842,7 @@ impl eframe::App for AixApp {
 #[cfg(target_os = "android")]
 #[no_mangle]
 fn android_main(_app: android_activity::AndroidApp) {
-    android_logger::init_once(android_logger::Config::default().with_tag("AIX").with_max_level(log::Level::Info));
+    android_logger::init_once(android_logger::Config::default().with_tag("AIX").with_max_level(log::LevelFilter::Info));
     log::info!("AIX Ultra started");
     use std::panic;
     use std::fs::OpenOptions;
