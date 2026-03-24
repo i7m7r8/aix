@@ -45,5 +45,3 @@ name = "android.permission.MANAGE_EXTERNAL_STORAGE"
 
 # Use debug signing for CI
 
-[package.metadata.android.signing]
-debug = {}
