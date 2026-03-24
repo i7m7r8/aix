@@ -272,7 +272,7 @@ impl AiModel {
 
         for _ in 0..max_tokens {
             // Prepare input tensor: shape [1, seq_len]
-            let input_ids = Tensor::new(&[&tokens], &self.device)?;
+            let input_ids = Tensor::new(Tensor::new(&[&tokens],[tokens.as_slice()], &self.device)?;
             let logits = model.forward(&input_ids, 0)?;
             let next_token = logits.squeeze(0)?.argmax(0)?.to_scalar::<u32>()?;
             tokens.push(next_token);
