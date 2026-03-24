@@ -489,7 +489,7 @@ impl AixApp {
     // -------------------------------------------------------------------------
 
     fn render_welcome(&self, ui: &mut egui::Ui, _state: &mut AixState) {
-        let welcome_text = include_str!("../assets/welcome.txt").unwrap_or("Welcome to AIX Ultra! (welcome file missing)");
+        let welcome_text = include_str!("../assets/welcome.txt");
         egui::ScrollArea::vertical().show(ui, |ui| {
             ui.add_space(20.0);
             ui.heading("📱 Welcome to AIX Ultra");
@@ -841,7 +841,7 @@ impl eframe::App for AixApp {
 #[cfg(target_os = "android")]
 #[no_mangle]
 fn android_main(_app: android_activity::AndroidApp) {
-    android_logger::init_once(android_logger::Config::default().with_tag("AIX").with_min_level(log::Level::Info));
+    android_logger::init_once(android_logger::Config::default().with_tag("AIX").with_max_level(log::Level::Info));
     log::info!("AIX Ultra started");
     use std::panic;
     use std::fs::OpenOptions;
