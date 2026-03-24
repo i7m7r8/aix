@@ -489,7 +489,7 @@ impl AixApp {
     // -------------------------------------------------------------------------
 
     fn render_welcome(&self, ui: &mut egui::Ui, _state: &mut AixState) {
-        let welcome_text = include_str!("../assets/welcome.txt");
+        let welcome_text = include_str!("../assets/welcome.txt").unwrap_or("Welcome to AIX Ultra! (welcome file missing)");
         egui::ScrollArea::vertical().show(ui, |ui| {
             ui.add_space(20.0);
             ui.heading("📱 Welcome to AIX Ultra");
@@ -841,6 +841,19 @@ impl eframe::App for AixApp {
 #[cfg(target_os = "android")]
 #[no_mangle]
 fn android_main(_app: android_activity::AndroidApp) {
+    android_logger::init_once(android_logger::Config::default().with_tag("AIX").with_min_level(log::Level::Info));
+    log::info!("AIX Ultra started");
+    use std::panic;
+    use std::fs::OpenOptions;
+    use std::io::Write;
+    let original_hook = panic::take_hook();
+    panic::set_hook(Box::new(move |panic_info| {
+        let log_path = "/sdcard/aix_crash.log";
+        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log_path) {
+            let _ = writeln!(file, "{:?}", panic_info);
+        }
+        original_hook(panic_info);
+    }));
     let options = eframe::NativeOptions::default();
     eframe::run_native(
         "AIX Ultra",
