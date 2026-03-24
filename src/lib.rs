@@ -755,10 +755,28 @@ impl eframe::App for AixApp {
         } else {
             egui::Visuals::light()
         };
+        // Custom Lumo‑inspired theme
+        let mut visuals = egui::Visuals::dark();
+        visuals.widgets.noninteractive.bg_fill = egui::Color32::from_rgb(30, 30, 35);
+        visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(40, 40, 45);
+        visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(60, 60, 70);
+        visuals.widgets.active.bg_fill = egui::Color32::from_rgb(80, 80, 90);
+        visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(200, 200, 210));
+        visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(210, 210, 220));
+        visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(230, 230, 240));
+        visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(255, 255, 255));
+        visuals.button_roundness = 8.0;
+        visuals.window_rounding = 12.0;
+        visuals.menu_rounding = 8.0;
+        visuals.panel_fill = egui::Color32::from_rgb(25, 25, 30);
+        visuals.window_fill = egui::Color32::from_rgb(35, 35, 40);
+        visuals.window_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(80, 80, 90));
         ctx.set_visuals(visuals);
 
         // Top panel: header
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+            ui.style_mut().spacing.item_spacing = egui::vec2(8.0, 8.0);
+            ui.style_mut().visuals.widgets.noninteractive.bg_fill = egui::Color32::from_rgb(20, 20, 25);
             ui.horizontal(|ui| {
                 ui.heading("⚡ AIX ULTRA");
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -804,6 +822,7 @@ impl eframe::App for AixApp {
 
         // Bottom panel: input field (for shell and chat)
         egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
+            ui.style_mut().spacing.item_spacing = egui::vec2(8.0, 8.0);
             ui.horizontal(|ui| {
                 // Compute hint and which input to use
                 let hint = match state.tab {
