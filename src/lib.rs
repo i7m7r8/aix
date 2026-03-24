@@ -23,7 +23,6 @@ use zip::read::ZipArchive;
 use candle_core::{Device, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::models::quantized_llama as model;
-use candle_transformers::models::quantized_llama::{Config, Model};
 
 // Syntect imports for syntax highlighting
 use syntect::easy::HighlightLines;
@@ -229,7 +228,7 @@ impl ZipDebugger {
 
 struct AiModel {
     device: Device,
-    model: Option<Model>,
+    model: Option<model::Model>,
     tokenizer: Option<tokenizers::Tokenizer>,
     context_size: usize,
 }
@@ -251,8 +250,8 @@ impl AiModel {
         let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[weights_path], candle_core::DType::F32, &device)? };
 
         let config_path = model_path.join("config.json");
-        let config = Config::from_reader(File::open(config_path)?)?;
-        let model = Model::new(&config, vb)?;
+        let config = model::Config::from_reader(File::open(config_path)?)?;
+        let model = model::Model::new(&config, vb)?;
 
         Ok(Self {
             device,
