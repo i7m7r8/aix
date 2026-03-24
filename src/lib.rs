@@ -1,4 +1,4 @@
-//! AIX Ultra – A multi‑tool Android app: file browser, code editor, zip debugger,
+//! AIX Ultra – Multi‑tool Android app: file browser, code editor, zip debugger,
 //! notes, tasks, calculator, shell, hardware info, and chat placeholder.
 
 #![cfg_attr(target_os = "android", allow(unused_imports))]
@@ -645,7 +645,7 @@ impl AixApp {
     fn render_notes(&self, ui: &mut egui::Ui, state: &mut AixState) {
         egui::SidePanel::left("notes_list").show_inside(ui, |ui| {
             ui.heading("Notes");
-            for (i, note) in state.notes.iter().enumerate() {
+            for (_i, note) in state.notes.iter().enumerate() {
                 if ui.button(&note.title).clicked() {
                     // For simplicity, just show a message; a real implementation would edit.
                 }
@@ -666,6 +666,8 @@ impl AixApp {
 
     fn render_tasks(&self, ui: &mut egui::Ui, state: &mut AixState) {
         ui.heading("To‑Do List");
+        // Collect indices to delete after the loop to avoid borrow conflicts
+        let mut to_delete = Vec::new();
         for (i, task) in state.tasks.iter_mut().enumerate() {
             ui.horizontal(|ui| {
                 let mut completed = task.completed;
@@ -673,13 +675,16 @@ impl AixApp {
                     task.completed = completed;
                 }
                 if ui.button("❌").clicked() {
-                    state.delete_task(i);
+                    to_delete.push(i);
                 }
             });
         }
+        for i in to_delete.into_iter().rev() {
+            state.delete_task(i);
+        }
         ui.separator();
         ui.horizontal(|ui| {
-            let new_task = ui.text_edit_singleline(&mut state.shell_input);
+            let _new_task = ui.text_edit_singleline(&mut state.shell_input);
             if ui.button("Add Task").clicked() {
                 let text = state.shell_input.clone();
                 if !text.is_empty() {
@@ -704,7 +709,7 @@ impl AixApp {
         ui.heading("File Search");
         ui.horizontal(|ui| {
             ui.label("Query:");
-            let response = ui.text_edit_singleline(&mut state.search.query);
+            let _response = ui.text_edit_singleline(&mut state.search.query);
             if ui.button("Search").clicked() {
                 state.search.start_search(&state.file_browser_current_dir);
             }
@@ -788,18 +793,21 @@ impl eframe::App for AixApp {
         // Bottom panel: input field (for shell and chat)
         egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
+                // Create a mutable default string that lives long enough
+                let mut default_input = String::new();
+                let input_ref = match state.tab {
+                    AppTab::Chat => &mut state.chat_input,
+                    AppTab::Shell => &mut state.shell_input,
+                    _ => &mut default_input,
+                };
+                let hint = match state.tab {
+                    AppTab::Chat => "Type a message...",
+                    AppTab::Shell => "Type a shell command...",
+                    _ => "",
+                };
                 let response = ui.add_sized(
                     [ui.available_width() - 70.0, 35.0],
-                    egui::TextEdit::singleline(match state.tab {
-                        AppTab::Chat => &mut state.chat_input,
-                        AppTab::Shell => &mut state.shell_input,
-                        _ => &mut String::new(),
-                    })
-                    .hint_text(match state.tab {
-                        AppTab::Chat => "Type a message...",
-                        AppTab::Shell => "Type a shell command...",
-                        _ => "",
-                    })
+                    egui::TextEdit::singleline(input_ref).hint_text(hint),
                 );
                 if ui.button("SEND").clicked() || (response.lost_focus() && ctx.input(|i| i.key_pressed(egui::Key::Enter))) {
                     match state.tab {
