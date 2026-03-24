@@ -1,0 +1,20 @@
+╔══════════════════════════════════════════════════════════╗
+║                   Welcome to AIX Ultra!                   ║
+║                                                          ║
+║  AIX Ultra is a powerful multi‑tool Android app built    ║
+║  with Rust and egui. It includes:                        ║
+║                                                          ║
+║  • File Browser & Code Editor                            ║
+║  • Zip Debugger with static analysis                     ║
+║  • Notes & Tasks (to‑do list)                            ║
+║  • Calculator & System Info                              ║
+║  • Shell (Termux commands)                               ║
+║  • Search files                                          ║
+║                                                          ║
+║  AI features coming soon!                                ║
+║                                                          ║
+║  To navigate, use the top‑bar tabs.                      ║
+║  For shell commands, switch to the Shell tab.            ║
+║                                                          ║
+║  Enjoy!                                                  ║
+╚══════════════════════════════════════════════════════════╝

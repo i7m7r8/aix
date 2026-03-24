@@ -29,6 +29,7 @@ use syntect::util::LinesWithEndings;
 
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
 enum AppTab {
+    Welcome,
     Chat,          // Placeholder AI chat
     Shell,         // Command shell
     Hardware,      // System info
@@ -760,6 +761,7 @@ impl eframe::App for AixApp {
             ui.separator();
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut state.tab, AppTab::Chat, "💬 CHAT");
+                ui.selectable_value(&mut state.tab, AppTab::Welcome, "👋 WELCOME");
                 ui.selectable_value(&mut state.tab, AppTab::Shell, "🐚 SHELL");
                 ui.selectable_value(&mut state.tab, AppTab::Hardware, "📊 SYS");
                 ui.selectable_value(&mut state.tab, AppTab::FileBrowser, "📁 FILES");
@@ -786,6 +788,7 @@ impl eframe::App for AixApp {
                 AppTab::Tasks => self.render_tasks(ui, &mut state),
                 AppTab::Calculator => self.render_calculator(ui, &mut state),
                 AppTab::Search => self.render_search(ui, &mut state),
+                AppTab::Welcome => self.render_welcome(ui, &mut state),
                 AppTab::Settings => self.render_settings(ui, &mut state),
             }
         });
@@ -844,3 +847,14 @@ fn android_main(_app: android_activity::AndroidApp) {
         Box::new(|cc| Ok(Box::new(AixApp::new(cc)))),
     ).unwrap();
 }
+
+    fn render_welcome(&self, ui: &mut egui::Ui, state: &mut AixState) {
+        // Try to read the welcome message from assets
+        let welcome_text = include_str!("../assets/welcome.txt");
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            ui.add_space(20.0);
+            ui.heading("📱 Welcome to AIX Ultra");
+            ui.add_space(10.0);
+            ui.label(welcome_text);
+        });
+    }
