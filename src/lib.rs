@@ -793,17 +793,17 @@ impl eframe::App for AixApp {
         // Bottom panel: input field (for shell and chat)
         egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                // Create a mutable default string that lives long enough
-                let mut default_input = String::new();
-                let input_ref = match state.tab {
-                    AppTab::Chat => &mut state.chat_input,
-                    AppTab::Shell => &mut state.shell_input,
-                    _ => &mut default_input,
-                };
+                // Compute hint and which input to use
                 let hint = match state.tab {
                     AppTab::Chat => "Type a message...",
                     AppTab::Shell => "Type a shell command...",
                     _ => "",
+                };
+                // Now borrow the correct input mutably
+                let input_ref = match state.tab {
+                    AppTab::Chat => &mut state.chat_input,
+                    AppTab::Shell => &mut state.shell_input,
+                    _ => &mut String::new(), // dummy, won't be used
                 };
                 let response = ui.add_sized(
                     [ui.available_width() - 70.0, 35.0],
