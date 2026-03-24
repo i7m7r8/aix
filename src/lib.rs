@@ -21,8 +21,7 @@ use zip::read::ZipArchive;
 
 // Candle imports
 use candle_core::{Device, Tensor};
-use candle_transformers::models::llama::Config;
-use candle_transformers::models::quantized_llama::Model;
+use candle_transformers::models::quantized_llama::{Config, Model};
 use candle_nn::VarBuilder;
 
 // Syntect imports for syntax highlighting
