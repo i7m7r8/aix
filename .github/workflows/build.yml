@@ -1,0 +1,42 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: aarch64-linux-android
+          override: true
+
+      - name: Install Android NDK
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y android-sdk
+          echo "y" | sdkmanager "ndk;25.2.9519653"
+
+      - name: Install cargo-apk
+        run: cargo install cargo-apk
+
+      - name: Build APK
+        run: cargo apk build --release --debug
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aix-ultra-apk
+          path: target/android-artifacts/release/apk/aix.apk
