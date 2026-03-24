@@ -39,6 +39,7 @@ jobs:
       - name: Create debug keystore
         run: |
           keytool -genkey -v -keystore debug.keystore -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Debug, OU=Debug, O=Debug, L=Debug, S=Debug, C=US" -storepass android -keypass android
+          ls -la debug.keystore
 
       - name: Build APK
         run: cargo apk build --release
