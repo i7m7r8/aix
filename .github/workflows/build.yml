@@ -49,4 +49,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: aix-ultra-apk
-          path: target/android-artifacts/release/apk/aix.apk
+          path: target/release/apk/aix.apk
