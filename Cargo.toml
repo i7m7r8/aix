@@ -12,7 +12,7 @@ eframe = { version = "0.30", features = ["android-game-activity", "glow"] }
 egui = "0.30"
 
 # AI Inference (Candle)
-candle-core = { version = "0.8.1", features = ["cpu"] }
+candle-core = { version = "0.8.1", default-features = false }
 candle-transformers = "0.8.1"
 candle-nn = "0.8.1"
 half = { version = "2.4", features = ["rand_distr"] }
