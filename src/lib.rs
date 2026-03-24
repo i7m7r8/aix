@@ -86,7 +86,7 @@ struct EditorState {
     content: String,
     syntax_set: SyntaxSet,
     theme_set: ThemeSet,
-    highlighter: Option<(HighlightLines<'static>, String)>, // fixed lifetime
+    highlighter: Option<HighlightLines<'static>>, // use 'static lifetime
 }
 
 impl EditorState {
@@ -127,11 +127,10 @@ impl EditorState {
                 .find_syntax_by_extension(ext)
                 .or_else(|| self.syntax_set.find_syntax_by_extension("txt"))
                 .unwrap();
-            // We need to leak the theme reference to get a 'static lifetime – for a short demo this is ok.
-            // In a real app, store Theme and SyntaxSet with static references.
+            // Leak the theme to get a 'static reference (ok for a short-lived demo)
             let theme = &self.theme_set.themes["base16-ocean.dark"];
-            let highlighter = HighlightLines::new(syntax, theme);
-            self.highlighter = Some((highlighter, String::new()));
+            let theme_static: &'static syntect::highlighting::Theme = Box::leak(Box::new(theme.clone()));
+            self.highlighter = Some(HighlightLines::new(syntax, theme_static));
         } else {
             self.highlighter = None;
         }
@@ -273,7 +272,7 @@ impl AiModel {
 
         for _ in 0..max_tokens {
             // Prepare input tensor: shape [1, seq_len]
-            let input_ids = Tensor::new(&[&tokens], &self.device)?; // fix: &[&[u32]] works
+            let input_ids = Tensor::new(&[&tokens], &self.device)?;
             let logits = model.forward(&input_ids, 0)?;
             let next_token = logits.squeeze(0)?.argmax(0)?.to_scalar::<u32>()?;
             tokens.push(next_token);
@@ -482,8 +481,10 @@ impl AixApp {
         });
         ui.separator();
 
+        // Clone entries to avoid borrowing conflict
+        let entries = state.file_entries.clone();
         egui::ScrollArea::vertical().show(ui, |ui| {
-            for entry in &state.file_entries {
+            for entry in &entries {
                 ui.horizontal(|ui| {
                     let icon = if entry.is_dir { "📁" } else { "📄" };
                     if ui.button(format!("{} {}", icon, entry.name)).clicked() {
