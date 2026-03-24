@@ -497,6 +497,15 @@ struct AixApp {
 }
 
 impl AixApp {
+    fn render_welcome(&self, ui: &mut egui::Ui, state: &mut AixState) {
+        let welcome_text = include_str!("../assets/welcome.txt");
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            ui.add_space(20.0);
+            ui.heading("📱 Welcome to AIX Ultra");
+            ui.add_space(10.0);
+            ui.label(welcome_text);
+        });
+    }
     fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         android_logger::init_once(android_logger::Config::default().with_tag("AIX"));
         let state = AixState::new();
@@ -848,13 +857,3 @@ fn android_main(_app: android_activity::AndroidApp) {
     ).unwrap();
 }
 
-    fn render_welcome(&self, ui: &mut egui::Ui, state: &mut AixState) {
-        // Try to read the welcome message from assets
-        let welcome_text = include_str!("../assets/welcome.txt");
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.add_space(20.0);
-            ui.heading("📱 Welcome to AIX Ultra");
-            ui.add_space(10.0);
-            ui.label(welcome_text);
-        });
-    }
