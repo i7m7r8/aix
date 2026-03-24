@@ -40,3 +40,7 @@ name = "android.permission.READ_EXTERNAL_STORAGE"
 name = "android.permission.WRITE_EXTERNAL_STORAGE"
 [[package.metadata.android.permission]]
 name = "android.permission.MANAGE_EXTERNAL_STORAGE"
+
+# Debug signing (so APK can be built without a custom keystore)
+[package.metadata.android.signing]
+debug = true
