@@ -7,39 +7,19 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-# UI
 eframe = { version = "0.30", features = ["android-game-activity", "glow"] }
 egui = "0.30"
-
-# AI Inference (Candle)
-candle-core = { version = "0.8.1", default-features = false }
-candle-transformers = "0.8.1"
-candle-nn = "0.8.1"
-half = { version = "2.4", features = ["rand_distr"] }
-tokenizers = "0.21"
-
-# Async runtime
-tokio = { version = "1", features = ["full"] }
-
-# System utilities
 serde = { version = "1.0", features = ["derive"] }
 anyhow = "1.0"
 log = "0.4"
 android_logger = "0.13"
 chrono = "0.4"
 directories = "5.0"
-
-# File handling
 zip = "2.2"
 walkdir = "2"
 tempfile = "3"
-flate2 = "1.0"
-
-# Syntax highlighting
 syntect = "5.2"
-
-# HTTP (optional, for downloading models)
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"], optional = true }
+tokio = { version = "1", features = ["full"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 android-activity = { version = "0.6", features = ["game-activity"] }

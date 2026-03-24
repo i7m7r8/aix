@@ -1,5 +1,5 @@
-//! AIX Ultra – A local AI chat and source code debugger for Android.
-//! Runs entirely on‑device using Candle for LLM inference.
+//! AIX Ultra – A local file browser, shell, and hardware info tool for Android.
+//! Chat feature currently returns a placeholder response (AI model integration coming soon).
 
 #![cfg_attr(target_os = "android", allow(unused_imports))]
 
@@ -8,22 +8,13 @@ use chrono::Local;
 use directories::ProjectDirs;
 use eframe::egui;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::fmt;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::{Duration, SystemTime};
+use std::time::{SystemTime};
 use walkdir::WalkDir;
 use zip::read::ZipArchive;
-
-// Candle imports
-use candle_core::{Device, Tensor};
-use candle_transformers::models::llama::Config;
-use candle_transformers::models::quantized_llama::Model;
-use candle_nn::VarBuilder;
 
 // Syntect imports for syntax highlighting
 use syntect::easy::HighlightLines;
@@ -55,8 +46,6 @@ struct ChatMessage {
 #[derive(Serialize, Deserialize, Clone)]
 struct Settings {
     dark_mode: bool,
-    model_path: PathBuf,
-    auto_save: bool,
     chat_history_file: PathBuf,
 }
 
@@ -66,8 +55,6 @@ impl Default for Settings {
         let data_dir = proj.data_dir();
         Self {
             dark_mode: true,
-            model_path: data_dir.join("models").join("tinyllama-1.1b-chat-v1.0"),
-            auto_save: true,
             chat_history_file: data_dir.join("chat_history.json"),
         }
     }
@@ -87,7 +74,7 @@ struct EditorState {
     content: String,
     syntax_set: SyntaxSet,
     theme_set: ThemeSet,
-    highlighter: Option<HighlightLines<'static>>, // use 'static lifetime
+    highlighter: Option<HighlightLines<'static>>,
 }
 
 impl EditorState {
@@ -194,7 +181,6 @@ impl ZipDebugger {
                         if matches!(ext, "rs" | "c" | "cpp" | "h" | "py" | "java" | "js") {
                             if let Ok(content) = fs::read_to_string(path) {
                                 self.analysis.push(format!("File: {}", path.display()));
-                                // Simple static analysis: look for common issues
                                 if content.contains("unsafe") {
                                     self.warnings.push(format!("{}: contains unsafe code", path.display()));
                                 }
@@ -204,7 +190,6 @@ impl ZipDebugger {
                                 if content.contains("panic!") {
                                     self.errors.push(format!("{}: contains panic! macro", path.display()));
                                 }
-                                // Check for missing error handling
                                 if content.contains("unwrap()") && !content.contains("expect") {
                                     self.warnings.push(format!("{}: uses unwrap() without expect", path.display()));
                                 }
@@ -227,66 +212,6 @@ impl ZipDebugger {
     }
 }
 
-struct AiModel {
-    device: Device,
-    model: Option<Model>,
-    tokenizer: Option<tokenizers::Tokenizer>,
-    context_size: usize,
-}
-
-impl AiModel {
-    fn new(settings: &Settings) -> Result<Self> {
-        let device = Device::Cpu;
-        let model_path = &settings.model_path;
-        if !model_path.exists() {
-            return Err(anyhow!("Model not found at {:?}", model_path));
-        }
-
-        // Load tokenizer
-        let tokenizer_path = model_path.join("tokenizer.json");
-        let tokenizer = tokenizers::Tokenizer::from_file(tokenizer_path).map_err(|e| anyhow!(e))?;
-
-        // Load model weights
-        let weights_path = model_path.join("model.safetensors");
-        let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[weights_path], candle_core::DType::F32, &device)? };
-
-        let config_path = model_path.join("config.json");
-        let config = Config::from_reader(File::open(config_path)?)?;
-        let model = Model::new(&config, vb)?;
-
-        Ok(Self {
-            device,
-            model: Some(model),
-            tokenizer: Some(tokenizer),
-            context_size: config.context_length,
-        })
-    }
-
-    fn generate(&mut self, prompt: &str) -> Result<String> {
-        let model = self.model.as_mut().ok_or_else(|| anyhow!("Model not loaded"))?;
-        let tokenizer = self.tokenizer.as_ref().ok_or_else(|| anyhow!("Tokenizer not loaded"))?;
-
-        let mut tokens = tokenizer.encode(prompt, true).map_err(|e| anyhow!(e))?.get_ids().to_vec();
-        // Simple generation loop (very basic, real implementation would be more complex)
-        let eos_token = tokenizer.token_to_id("</s>").unwrap_or(2);
-        let max_tokens = 200;
-
-        for _ in 0..max_tokens {
-            // Prepare input tensor: shape [1, seq_len]
-        let input_ids = Tensor::new(tokens.as_slice(), &self.device)?.unsqueeze(0)?;
-            let logits = model.forward(&input_ids, 0)?;
-            let next_token = logits.squeeze(0)?.argmax(0)?.to_scalar::<u32>()?;
-            tokens.push(next_token);
-            if next_token == eos_token {
-                break;
-            }
-        }
-
-        let output = tokenizer.decode(&tokens, true).map_err(|e| anyhow!(e))?;
-        Ok(output)
-    }
-}
-
 struct AixState {
     tab: AppTab,
     history: Vec<ChatMessage>,
@@ -298,9 +223,6 @@ struct AixState {
     file_entries: Vec<FileEntry>,
     zip_debugger: ZipDebugger,
     editor: EditorState,
-    model: Option<AiModel>,
-    model_loading: bool,
-    model_error: Option<String>,
 }
 
 impl AixState {
@@ -314,7 +236,7 @@ impl AixState {
             tab: AppTab::Chat,
             history: vec![ChatMessage {
                 sender: "SYSTEM".into(),
-                text: "AIX Ultra Kernel v1.0 Online".into(),
+                text: "AIX Ultra v1.0 Online (AI model coming soon)".into(),
                 time: Local::now().format("%H:%M").to_string(),
             }],
             input: String::new(),
@@ -325,9 +247,6 @@ impl AixState {
             file_entries: Vec::new(),
             zip_debugger: ZipDebugger::new(),
             editor: EditorState::new(),
-            model: None,
-            model_loading: false,
-            model_error: None,
         }
     }
 
@@ -350,26 +269,6 @@ impl AixState {
         }
     }
 
-    fn load_model(&mut self) {
-        if self.model.is_some() || self.model_loading {
-            return;
-        }
-        self.model_loading = true;
-        let settings = self.settings.clone();
-        let model_result = AiModel::new(&settings);
-        match model_result {
-            Ok(model) => {
-                self.model = Some(model);
-                self.logs.push("[AI] Model loaded successfully".into());
-            }
-            Err(e) => {
-                self.model_error = Some(e.to_string());
-                self.logs.push(format!("[AI] Model loading failed: {}", e));
-            }
-        }
-        self.model_loading = false;
-    }
-
     fn send_message(&mut self, text: &str) {
         let msg = ChatMessage {
             sender: "USER".into(),
@@ -379,32 +278,12 @@ impl AixState {
         self.history.push(msg);
         self.input.clear();
 
-        // Generate AI response if model is loaded
-        if let Some(model) = &mut self.model {
-            let prompt = format!("<|user|>\n{}\n<|assistant|>\n", text);
-            match model.generate(&prompt) {
-                Ok(response) => {
-                    self.history.push(ChatMessage {
-                        sender: "AI".into(),
-                        text: response,
-                        time: Local::now().format("%H:%M").to_string(),
-                    });
-                }
-                Err(e) => {
-                    self.history.push(ChatMessage {
-                        sender: "ERROR".into(),
-                        text: format!("Failed to generate: {}", e),
-                        time: Local::now().format("%H:%M").to_string(),
-                    });
-                }
-            }
-        } else {
-            self.history.push(ChatMessage {
-                sender: "AI".into(),
-                text: "Model not loaded. Please load a model in Settings.".into(),
-                time: Local::now().format("%H:%M").to_string(),
-            });
-        }
+        // Placeholder AI response
+        self.history.push(ChatMessage {
+            sender: "AI".into(),
+            text: "AI model not yet integrated. This is a placeholder. Full AI features coming soon!".into(),
+            time: Local::now().format("%H:%M").to_string(),
+        });
     }
 
     fn shell_command(&self, cmd: &str) -> String {
@@ -482,7 +361,6 @@ impl AixApp {
         });
         ui.separator();
 
-        // Clone entries to avoid borrowing conflict
         let entries = state.file_entries.clone();
         egui::ScrollArea::vertical().show(ui, |ui| {
             for entry in &entries {
@@ -493,7 +371,6 @@ impl AixApp {
                             state.file_browser_current_dir = entry.path.clone();
                             state.refresh_file_browser();
                         } else {
-                            // Open file in editor if it's a text file
                             if let Some(ext) = entry.path.extension().and_then(|e| e.to_str()) {
                                 if matches!(ext, "rs" | "c" | "cpp" | "h" | "py" | "java" | "js" | "txt" | "md") {
                                     if let Err(e) = state.editor.load_file(&entry.path) {
@@ -541,7 +418,6 @@ impl AixApp {
         });
         ui.separator();
 
-        // Simple text editor with scrolling
         egui::ScrollArea::vertical().show(ui, |ui| {
             ui.add_sized(
                 ui.available_size(),
@@ -555,29 +431,9 @@ impl AixApp {
     fn render_settings(&self, ui: &mut egui::Ui, state: &mut AixState) {
         ui.heading("Settings");
         ui.checkbox(&mut state.settings.dark_mode, "Dark Mode");
-        ui.horizontal(|ui| {
-            ui.label("Model Path:");
-            let mut path_str = state.settings.model_path.display().to_string();
-            if ui.add(egui::TextEdit::singleline(&mut path_str)).changed() {
-                state.settings.model_path = PathBuf::from(path_str);
-            }
-        });
-        if ui.button("Load Model").clicked() {
-            state.load_model();
-        }
-        if state.model_loading {
-            ui.spinner();
-        }
-        if let Some(err) = &state.model_error {
-            ui.colored_label(egui::Color32::RED, format!("Error: {}", err));
-        }
-        if state.model.is_some() {
-            ui.colored_label(egui::Color32::GREEN, "Model loaded");
-        }
-        ui.checkbox(&mut state.settings.auto_save, "Auto-save chat history");
         if ui.button("Save Settings").clicked() {
-            // Persist settings (could save to file)
-            state.logs.push("Settings saved".into());
+            // Persist settings
+            state.logs.push("Settings saved (placeholder)".into());
         }
     }
 }
@@ -645,9 +501,7 @@ impl eframe::App for AixApp {
                                 state.logs.push(format!("$ {}", text));
                                 state.logs.push(res);
                             }
-                            _ => {
-                                // Do nothing
-                            }
+                            _ => {}
                         }
                         state.input.clear();
                     }
