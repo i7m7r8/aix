@@ -13,7 +13,7 @@ egui = "0.30"
 
 # AI Inference (Candle)
 candle-core = { version = "0.8.1", default-features = false }
-candle-transformers = "0.8.1"
+candle-transformers = { version = "0.8.1", features = ["quantized"] }
 candle-nn = "0.8.1"
 half = { version = "2.4", features = ["rand_distr"] }
 tokenizers = "0.21"
