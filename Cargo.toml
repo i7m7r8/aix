@@ -7,30 +7,46 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
+# UI
 eframe = { version = "0.30", features = ["android-game-activity", "glow"] }
 egui = "0.30"
-egui_extras = { version = "0.30", features = ["image"] }
+
+# AI Inference (Candle)
 candle-core = { version = "0.8.1", features = ["cpu"] }
 candle-transformers = "0.8.1"
 candle-nn = "0.8.1"
-tokenizers = { version = "0.21", default-features = false }
+half = { version = "2.4", features = ["rand_distr"] }
+tokenizers = "0.21"
+
+# Async runtime
 tokio = { version = "1", features = ["full"] }
-anyhow = "1.0"
+
+# System utilities
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-chrono = "0.4"
+anyhow = "1.0"
 log = "0.4"
 android_logger = "0.13"
-zip = "0.6"
-half = { version = "2.4", features = ["rand_distr"] }
-rand = "0.8"
+chrono = "0.4"
+directories = "5.0"
+
+# File handling
+zip = "2.2"
+walkdir = "2"
+tempfile = "3"
+flate2 = "1.0"
+
+# Syntax highlighting
+syntect = "5.2"
+
+# HTTP (optional, for downloading models)
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"], optional = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 android-activity = { version = "0.6", features = ["game-activity"] }
 
 [package.metadata.android]
 package = "com.i7m7r8.aix"
-label = "AIX Ultra Agent"
+label = "AIX Ultra"
 assets = "assets"
 build_targets = ["aarch64-linux-android"]
 min_sdk_version = 23
