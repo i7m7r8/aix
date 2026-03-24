@@ -1,5 +1,4 @@
-//! AIX Ultra – Multi‑tool Android app: file browser, code editor, zip debugger,
-//! notes, tasks, calculator, shell, hardware info, and chat placeholder.
+//! AIX Ultra – Multi‑tool Android app with Lumo‑inspired UI.
 
 #![cfg_attr(target_os = "android", allow(unused_imports))]
 
@@ -30,16 +29,16 @@ use syntect::util::LinesWithEndings;
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
 enum AppTab {
     Welcome,
-    Chat,          // Placeholder AI chat
-    Shell,         // Command shell
-    Hardware,      // System info
-    FileBrowser,   // Browse files
-    Editor,        // Code editor
-    ZipDebugger,   // Extract & analyze zip archives
-    Notes,         // Simple notes
-    Tasks,         // To‑do list
-    Calculator,    // Simple calculator
-    Search,        // File search
+    Chat,
+    Shell,
+    Hardware,
+    FileBrowser,
+    Editor,
+    ZipDebugger,
+    Notes,
+    Tasks,
+    Calculator,
+    Search,
     Settings,
 }
 
@@ -166,7 +165,6 @@ impl EditorState {
                 .find_syntax_by_extension(ext)
                 .or_else(|| self.syntax_set.find_syntax_by_extension("txt"))
                 .unwrap();
-            // Leak the theme to get a 'static reference (ok for a short-lived demo)
             let theme = &self.theme_set.themes["base16-ocean.dark"];
             let theme_static: &'static syntect::highlighting::Theme = Box::leak(Box::new(theme.clone()));
             self.highlighter = Some(HighlightLines::new(syntax, theme_static));
@@ -298,11 +296,6 @@ impl SearchState {
                     found.push(entry.path().to_path_buf());
                 }
             }
-            // We'll handle results later via a channel, but for simplicity,
-            // we just store them and the UI will refresh on next frame.
-            // This is a placeholder; a real implementation would use a channel.
-            // Here we do nothing – the results will be empty.
-            // For a demo, we'll just print.
             eprintln!("Found {} files", found.len());
         });
     }
@@ -326,18 +319,11 @@ impl CalculatorState {
     }
 
     fn evaluate(&mut self) {
-        // Very simple expression evaluator (for demo only)
-        // In a real app, use a proper parser.
         let expr = self.expression.trim();
         if expr.is_empty() {
             self.result = "".into();
             return;
         }
-        // This is a toy evaluator – just handle +, -, *, / with integers.
-        // For safety, we do not use `eval`; we implement a basic shunting‑yard.
-        // To keep the code short, we'll use a simple recursive descent.
-        // Actually, let's use a simple approach: split by spaces? Too naive.
-        // We'll just show a placeholder.
         self.result = format!("Not implemented: {}", expr);
     }
 }
@@ -371,12 +357,8 @@ impl AixState {
         let data_dir = proj.data_dir();
         fs::create_dir_all(&data_dir).ok();
 
-        // Load notes and tasks (simple placeholder)
-        let notes = Vec::new();
-        let tasks = Vec::new();
-
         Self {
-            tab: AppTab::Chat,
+            tab: AppTab::Welcome,
             chat_history: vec![ChatMessage {
                 sender: "SYSTEM".into(),
                 text: "AIX Ultra – Multi‑tool app. AI model coming soon.".into(),
@@ -389,8 +371,8 @@ impl AixState {
             file_entries: Vec::new(),
             zip_debugger: ZipDebugger::new(),
             editor: EditorState::new(),
-            notes,
-            tasks,
+            notes: Vec::new(),
+            tasks: Vec::new(),
             next_task_id: 1,
             calculator: CalculatorState::new(),
             search: SearchState::new(),
@@ -426,7 +408,6 @@ impl AixState {
         self.chat_history.push(msg);
         self.chat_input.clear();
 
-        // Placeholder AI response
         self.chat_history.push(ChatMessage {
             sender: "AI".into(),
             text: "AI model not yet integrated. This is a placeholder. Full AI features coming soon!".into(),
@@ -497,15 +478,6 @@ struct AixApp {
 }
 
 impl AixApp {
-    fn render_welcome(&self, ui: &mut egui::Ui, state: &mut AixStateself, ui: &self, ui: &mut egui::Ui, state: &mut AixStatemut egui::Ui, _state: &self, ui: &mut egui::Ui, state: &mut AixStatemut AixState) {
-        let welcome_text = include_str!("../assets/welcome.txt");
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.add_space(20.0);
-            ui.heading("📱 Welcome to AIX Ultra");
-            ui.add_space(10.0);
-            ui.label(welcome_text);
-        });
-    }
     fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         android_logger::init_once(android_logger::Config::default().with_tag("AIX"));
         let state = AixState::new();
@@ -516,7 +488,17 @@ impl AixApp {
     // Render each tab
     // -------------------------------------------------------------------------
 
-    fn render_chat(&self, ui: &mut egui::Ui, state: &mut AixStateself, ui: &self, ui: &mut egui::Ui, state: &mut AixStatemut egui::Ui, _state: &self, ui: &mut egui::Ui, state: &mut AixStatemut AixState) {
+    fn render_welcome(&self, ui: &mut egui::Ui, _state: &mut AixState) {
+        let welcome_text = include_str!("../assets/welcome.txt");
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            ui.add_space(20.0);
+            ui.heading("📱 Welcome to AIX Ultra");
+            ui.add_space(10.0);
+            ui.label(welcome_text);
+        });
+    }
+
+    fn render_chat(&self, ui: &mut egui::Ui, state: &mut AixState) {
         egui::ScrollArea::vertical().stick_to_bottom(true).show(ui, |ui| {
             for msg in &state.chat_history {
                 ui.group(|ui| {
@@ -527,7 +509,7 @@ impl AixApp {
         });
     }
 
-    fn render_shell(&self, ui: &mut egui::Ui, state: &mut AixStateself, ui: &self, ui: &mut egui::Ui, state: &mut AixStatemut egui::Ui, _state: &self, ui: &mut egui::Ui, state: &mut AixStatemut AixState) {
+    fn render_shell(&self, ui: &mut egui::Ui, state: &mut AixState) {
         egui::ScrollArea::vertical().show(ui, |ui| {
             for log in &state.logs {
                 ui.monospace(log);
@@ -535,14 +517,12 @@ impl AixApp {
         });
     }
 
-    fn render_hardware(&self, ui: &mut egui::Ui, state: &mut AixStateself, ui: &self, ui: &mut egui::Ui, state: &mut AixStatemut egui::Ui, _state: &self, ui: &mut egui::Ui, state: &mut AixStatemut AixState) {
+    fn render_hardware(&self, ui: &mut egui::Ui, state: &mut AixState) {
         ui.label(state.hardware_info());
-        if ui.button("Refresh").clicked() {
-            // Refresh is done on next render
-        }
+        if ui.button("Refresh").clicked() {}
     }
 
-    fn render_file_browser(&self, ui: &mut egui::Ui, state: &mut AixStateself, ui: &self, ui: &mut egui::Ui, state: &mut AixStatemut egui::Ui, _state: &self, ui: &mut egui::Ui, state: &mut AixStatemut AixState) {
+    fn render_file_browser(&self, ui: &mut egui::Ui, state: &mut AixState) {
         ui.horizontal(|ui| {
             ui.label("Current: ");
             ui.monospace(state.file_browser_current_dir.display().to_string());
@@ -593,7 +573,7 @@ impl AixApp {
         });
     }
 
-    fn render_editor(&self, ui: &mut egui::Ui, state: &mut AixStateself, ui: &self, ui: &mut egui::Ui, state: &mut AixStatemut egui::Ui, _state: &self, ui: &mut egui::Ui, state: &mut AixStatemut AixState) {
+    fn render_editor(&self, ui: &mut egui::Ui, state: &mut AixState) {
         ui.horizontal(|ui| {
             if let Some(path) = &state.editor.current_file {
                 ui.label(format!("Editing: {}", path.display()));
@@ -625,7 +605,7 @@ impl AixApp {
         });
     }
 
-    fn render_zip_debugger(&self, ui: &mut egui::Ui, state: &mut AixStateself, ui: &self, ui: &mut egui::Ui, state: &mut AixStatemut egui::Ui, _state: &self, ui: &mut egui::Ui, state: &mut AixStatemut AixState) {
+    fn render_zip_debugger(&self, ui: &mut egui::Ui, state: &mut AixState) {
         if state.zip_debugger.extracted_dir.is_none() {
             ui.label("No zip extracted yet. Open a zip file from the file browser.");
         } else {
@@ -652,13 +632,11 @@ impl AixApp {
         }
     }
 
-    fn render_notes(&self, ui: &mut egui::Ui, state: &mut AixStateself, ui: &self, ui: &mut egui::Ui, state: &mut AixStatemut egui::Ui, _state: &self, ui: &mut egui::Ui, state: &mut AixStatemut AixState) {
+    fn render_notes(&self, ui: &mut egui::Ui, state: &mut AixState) {
         egui::SidePanel::left("notes_list").show_inside(ui, |ui| {
             ui.heading("Notes");
             for (_i, note) in state.notes.iter().enumerate() {
-                if ui.button(&note.title).clicked() {
-                    // For simplicity, just show a message; a real implementation would edit.
-                }
+                if ui.button(&note.title).clicked() {}
             }
             if ui.button("+ New Note").clicked() {
                 state.add_note("New Note".into(), "Write your note here...".into());
@@ -674,9 +652,8 @@ impl AixApp {
         });
     }
 
-    fn render_tasks(&self, ui: &mut egui::Ui, state: &mut AixStateself, ui: &self, ui: &mut egui::Ui, state: &mut AixStatemut egui::Ui, _state: &self, ui: &mut egui::Ui, state: &mut AixStatemut AixState) {
+    fn render_tasks(&self, ui: &mut egui::Ui, state: &mut AixState) {
         ui.heading("To‑Do List");
-        // Collect indices to delete after the loop to avoid borrow conflicts
         let mut to_delete = Vec::new();
         for (i, task) in state.tasks.iter_mut().enumerate() {
             ui.horizontal(|ui| {
@@ -705,7 +682,7 @@ impl AixApp {
         });
     }
 
-    fn render_calculator(&self, ui: &mut egui::Ui, state: &mut AixStateself, ui: &self, ui: &mut egui::Ui, state: &mut AixStatemut egui::Ui, _state: &self, ui: &mut egui::Ui, state: &mut AixStatemut AixState) {
+    fn render_calculator(&self, ui: &mut egui::Ui, state: &mut AixState) {
         ui.heading("Calculator");
         ui.label("Expression:");
         let response = ui.text_edit_singleline(&mut state.calculator.expression);
@@ -715,7 +692,7 @@ impl AixApp {
         ui.label(format!("Result: {}", state.calculator.result));
     }
 
-    fn render_search(&self, ui: &mut egui::Ui, state: &mut AixStateself, ui: &self, ui: &mut egui::Ui, state: &mut AixStatemut egui::Ui, _state: &self, ui: &mut egui::Ui, state: &mut AixStatemut AixState) {
+    fn render_search(&self, ui: &mut egui::Ui, state: &mut AixState) {
         ui.heading("File Search");
         ui.horizontal(|ui| {
             ui.label("Query:");
@@ -731,11 +708,10 @@ impl AixApp {
         }
     }
 
-    fn render_settings(&self, ui: &mut egui::Ui, state: &mut AixStateself, ui: &self, ui: &mut egui::Ui, state: &mut AixStatemut egui::Ui, _state: &self, ui: &mut egui::Ui, state: &mut AixStatemut AixState) {
+    fn render_settings(&self, ui: &mut egui::Ui, state: &mut AixState) {
         ui.heading("Settings");
         ui.checkbox(&mut state.settings.dark_mode, "Dark Mode");
         if ui.button("Save Settings").clicked() {
-            // Persist settings (placeholder)
             state.logs.push("Settings saved (placeholder)".into());
         }
     }
@@ -749,19 +725,13 @@ impl eframe::App for AixApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let mut state = self.state.lock().unwrap();
 
-        // Apply theme
-        let visuals = if state.settings.dark_mode {
+        // Apply Lumo‑inspired modern theme
+        let mut visuals = if state.settings.dark_mode {
             egui::Visuals::dark()
         } else {
             egui::Visuals::light()
         };
-        // Custom Lumo‑inspired theme
-        let mut visuals = egui::Visuals::dark();
         visuals.widgets.noninteractive.bg_fill = egui::Color32::from_rgb(30, 30, 35);
-        visuals.widgets.noninteractive.rounding = 8.0.into();
-        visuals.widgets.inactive.rounding = 8.0.into();
-        visuals.widgets.hovered.rounding = 8.0.into();
-        visuals.widgets.active.rounding = 8.0.into();
         visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(40, 40, 45);
         visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(60, 60, 70);
         visuals.widgets.active.bg_fill = egui::Color32::from_rgb(80, 80, 90);
@@ -769,6 +739,10 @@ impl eframe::App for AixApp {
         visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(210, 210, 220));
         visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(230, 230, 240));
         visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(255, 255, 255));
+        visuals.widgets.noninteractive.rounding = 8.0.into();
+        visuals.widgets.inactive.rounding = 8.0.into();
+        visuals.widgets.hovered.rounding = 8.0.into();
+        visuals.widgets.active.rounding = 8.0.into();
         visuals.window_rounding = 12.0.into();
         visuals.menu_rounding = 8.0.into();
         visuals.panel_fill = egui::Color32::from_rgb(25, 25, 30);
@@ -779,7 +753,6 @@ impl eframe::App for AixApp {
         // Top panel: header
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.style_mut().spacing.item_spacing = egui::vec2(8.0, 8.0);
-            ui.style_mut().visuals.widgets.noninteractive.bg_fill = egui::Color32::from_rgb(20, 20, 25);
             ui.horizontal(|ui| {
                 ui.heading("⚡ AIX ULTRA");
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -790,8 +763,8 @@ impl eframe::App for AixApp {
             });
             ui.separator();
             ui.horizontal(|ui| {
-                ui.selectable_value(&mut state.tab, AppTab::Chat, "💬 CHAT");
                 ui.selectable_value(&mut state.tab, AppTab::Welcome, "👋 WELCOME");
+                ui.selectable_value(&mut state.tab, AppTab::Chat, "💬 CHAT");
                 ui.selectable_value(&mut state.tab, AppTab::Shell, "🐚 SHELL");
                 ui.selectable_value(&mut state.tab, AppTab::Hardware, "📊 SYS");
                 ui.selectable_value(&mut state.tab, AppTab::FileBrowser, "📁 FILES");
@@ -808,6 +781,7 @@ impl eframe::App for AixApp {
         // Central panel: content
         egui::CentralPanel::default().show(ctx, |ui| {
             match state.tab {
+                AppTab::Welcome => self.render_welcome(ui, &mut state),
                 AppTab::Chat => self.render_chat(ui, &mut state),
                 AppTab::Shell => self.render_shell(ui, &mut state),
                 AppTab::Hardware => self.render_hardware(ui, &mut state),
@@ -818,26 +792,22 @@ impl eframe::App for AixApp {
                 AppTab::Tasks => self.render_tasks(ui, &mut state),
                 AppTab::Calculator => self.render_calculator(ui, &mut state),
                 AppTab::Search => self.render_search(ui, &mut state),
-                AppTab::Welcome => self.render_welcome(ui, &mut state),
                 AppTab::Settings => self.render_settings(ui, &mut state),
             }
         });
 
         // Bottom panel: input field (for shell and chat)
         egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
-            ui.style_mut().spacing.item_spacing = egui::vec2(8.0, 8.0);
             ui.horizontal(|ui| {
-                // Compute hint and which input to use
                 let hint = match state.tab {
                     AppTab::Chat => "Type a message...",
                     AppTab::Shell => "Type a shell command...",
                     _ => "",
                 };
-                // Now borrow the correct input mutably
                 let input_ref = match state.tab {
                     AppTab::Chat => &mut state.chat_input,
                     AppTab::Shell => &mut state.shell_input,
-                    _ => &mut String::new(), // dummy, won't be used
+                    _ => &mut String::new(),
                 };
                 let response = ui.add_sized(
                     [ui.available_width() - 70.0, 35.0],
@@ -878,4 +848,3 @@ fn android_main(_app: android_activity::AndroidApp) {
         Box::new(|cc| Ok(Box::new(AixApp::new(cc)))),
     ).unwrap();
 }
-
