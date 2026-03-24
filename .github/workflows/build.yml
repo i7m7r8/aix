@@ -30,13 +30,15 @@ jobs:
         run: |
           export ANDROID_HOME=/usr/local/lib/android/sdk
           export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH
-          # Accept licenses
           yes | sdkmanager --licenses
-          # Install NDK and build-tools
           sdkmanager "ndk;25.2.9519653" "build-tools;30.0.3" "platforms;android-30"
 
       - name: Install cargo-apk
         run: cargo install cargo-apk
+
+      - name: Create debug keystore
+        run: |
+          keytool -genkey -v -keystore debug.keystore -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Debug, OU=Debug, O=Debug, L=Debug, S=Debug, C=US" -storepass android -keypass android
 
       - name: Build APK
         run: cargo apk build --release
