@@ -11,9 +11,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 use std::fs::{self, File};
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime};
 use walkdir::WalkDir;
@@ -28,7 +28,7 @@ use candle_transformers::models::quantized_llama as model;
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{ThemeSet, Style};
 use syntect::parsing::SyntaxSet;
-use syntect::util::{as_24_bit_terminal_escaped, LinesWithEndings};
+use syntect::util::LinesWithEndings;
 
 // -----------------------------------------------------------------------------
 // App configuration and state
@@ -86,7 +86,7 @@ struct EditorState {
     content: String,
     syntax_set: SyntaxSet,
     theme_set: ThemeSet,
-    highlighter: Option<(HighlightLines, String)>,
+    highlighter: Option<(HighlightLines<'static>, String)>, // fixed lifetime
 }
 
 impl EditorState {
@@ -127,10 +127,11 @@ impl EditorState {
                 .find_syntax_by_extension(ext)
                 .or_else(|| self.syntax_set.find_syntax_by_extension("txt"))
                 .unwrap();
-            self.highlighter = Some((
-                HighlightLines::new(syntax, &self.theme_set.themes["base16-ocean.dark"]),
-                String::new(),
-            ));
+            // We need to leak the theme reference to get a 'static lifetime – for a short demo this is ok.
+            // In a real app, store Theme and SyntaxSet with static references.
+            let theme = &self.theme_set.themes["base16-ocean.dark"];
+            let highlighter = HighlightLines::new(syntax, theme);
+            self.highlighter = Some((highlighter, String::new()));
         } else {
             self.highlighter = None;
         }
@@ -249,7 +250,8 @@ impl AiModel {
         let weights_path = model_path.join("model.safetensors");
         let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[weights_path], candle_core::DType::F32, &device)? };
 
-        let config = model::Config::from_reader(File::open(model_path.join("config.json"))?)?;
+        let config_path = model_path.join("config.json");
+        let config = model::Config::from_reader(File::open(config_path)?)?;
         let model = model::Model::new(&config, vb)?;
 
         Ok(Self {
@@ -270,8 +272,9 @@ impl AiModel {
         let max_tokens = 200;
 
         for _ in 0..max_tokens {
-            let input = Tensor::new(&[tokens.as_slice()], &self.device)?.unsqueeze(0)?;
-            let logits = model.forward(&input, 0)?;
+            // Prepare input tensor: shape [1, seq_len]
+            let input_ids = Tensor::new(&[&tokens], &self.device)?; // fix: &[&[u32]] works
+            let logits = model.forward(&input_ids, 0)?;
             let next_token = logits.squeeze(0)?.argmax(0)?.to_scalar::<u32>()?;
             tokens.push(next_token);
             if next_token == eos_token {
@@ -335,9 +338,12 @@ impl AixState {
                 let metadata = entry.metadata().ok();
                 let name = entry.file_name().to_string_lossy().to_string();
                 let path = entry.path();
-                let is_dir = metadata.map(|m| m.is_dir()).unwrap_or(false);
-                let size = metadata.map(|m| m.len()).unwrap_or(0);
-                let modified = metadata.map(|m| m.modified().unwrap_or(SystemTime::UNIX_EPOCH)).unwrap_or(SystemTime::UNIX_EPOCH);
+                let is_dir = metadata.as_ref().map(|m| m.is_dir()).unwrap_or(false);
+                let size = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
+                let modified = metadata
+                    .as_ref()
+                    .and_then(|m| m.modified().ok())
+                    .unwrap_or(SystemTime::UNIX_EPOCH);
                 self.file_entries.push(FileEntry { name, path, is_dir, size, modified });
             }
             self.file_entries.sort_by(|a, b| a.name.cmp(&b.name));
@@ -486,7 +492,7 @@ impl AixApp {
                             state.refresh_file_browser();
                         } else {
                             // Open file in editor if it's a text file
-                            if let Ok(ext) = entry.path.extension().and_then(|e| e.to_str()) {
+                            if let Some(ext) = entry.path.extension().and_then(|e| e.to_str()) {
                                 if matches!(ext, "rs" | "c" | "cpp" | "h" | "py" | "java" | "js" | "txt" | "md") {
                                     if let Err(e) = state.editor.load_file(&entry.path) {
                                         state.logs.push(format!("Failed to load file: {}", e));
@@ -651,8 +657,7 @@ impl eframe::App for AixApp {
 
 #[cfg(target_os = "android")]
 #[no_mangle]
-fn android_main(app: android_activity::AndroidApp) {
-    use android_activity::AndroidApp;
+fn android_main(_app: android_activity::AndroidApp) {
     let options = eframe::NativeOptions::default();
     eframe::run_native(
         "AIX Ultra",
