@@ -5,15 +5,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android Platform 30
+        run: sdkmanager "platforms;android-30" "build-tools;30.0.3"
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android
+
       - name: Build APK
         run: |
           cargo install cargo-apk
-          sudo apt-get update && sudo apt-get install -y openjdk-17-jdk
-          export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
           cargo apk build --release
+          
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
