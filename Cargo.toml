@@ -7,26 +7,37 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
+# UI
 eframe = { version = "0.30", features = ["android-game-activity", "glow"] }
 egui = "0.30"
+
+# AI Markov chain
+rand = "0.8"
+
+# System utilities
 serde = { version = "1.0", features = ["derive"] }
 anyhow = "1.0"
 log = "0.4"
 android_logger = "0.13"
 chrono = "0.4"
 directories = "5.0"
+
+# File handling
 zip = "2.2"
 walkdir = "2"
 tempfile = "3"
+flate2 = "1.0"
+
+# Syntax highlighting
 syntect = "5.2"
-rand = "0.8"
+
+# Async runtime (optional)
 tokio = { version = "1", features = ["full"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 android-activity = { version = "0.6", features = ["game-activity"] }
 
 [package.metadata.android]
-icon = "res/mipmap/ic_launcher.png"
 package = "com.i7m7r8.aix"
 label = "AIX Ultra"
 assets = "assets"
@@ -42,20 +53,3 @@ name = "android.permission.READ_EXTERNAL_STORAGE"
 name = "android.permission.WRITE_EXTERNAL_STORAGE"
 [[package.metadata.android.permission]]
 name = "android.permission.MANAGE_EXTERNAL_STORAGE"
-
-path = "debug.keystore"
-keystore_password = "android"
-key_alias = "androiddebugkey"
-key_password = "android"
-
-path = "debug.keystore"
-keystore_password = "android"
-key_alias = "androiddebugkey"
-key_password = "android"
-
-path = "debug.keystore"
-keystore_password = "android"
-key_alias = "androiddebugkey"
-key_password = "android"
-
-# v1.0.0
