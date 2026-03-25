@@ -19,12 +19,14 @@ zip = "2.2"
 walkdir = "2"
 tempfile = "3"
 syntect = "5.2"
+rand = "0.8"
 tokio = { version = "1", features = ["full"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 android-activity = { version = "0.6", features = ["game-activity"] }
 
 [package.metadata.android]
+icon = "res/mipmap/ic_launcher.png"
 package = "com.i7m7r8.aix"
 label = "AIX Ultra"
 assets = "assets"

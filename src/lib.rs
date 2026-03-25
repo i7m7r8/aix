@@ -12,6 +12,7 @@ use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use rand::Rng;
 use std::time::{SystemTime, Duration};
 use walkdir::WalkDir;
 use zip::read::ZipArchive;
@@ -97,7 +98,7 @@ impl MarkovBrain {
                 if next_words.is_empty() {
                     break;
                 }
-                let idx = rand::Rng::gen_range(&mut rng, 0..next_words.len());
+                let idx = rng.gen_range(0..next_words.len());
                 let next = &next_words[idx];
                 result.push(' ');
                 result.push_str(next);
@@ -715,7 +716,7 @@ impl AixApp {
     fn render_notes(&self, ui: &mut egui::Ui, state: &mut AixState) {
         egui::SidePanel::left("notes_list").show_inside(ui, |ui| {
             ui.heading("Notes");
-            for (i, note) in state.notes.iter().enumerate() {
+            for (_i, note) in state.notes.iter().enumerate() {
                 if ui.button(&note.title).clicked() {
                     // For simplicity, just show a message; a real implementation would edit.
                 }
@@ -914,7 +915,7 @@ impl eframe::App for AixApp {
 // Panic hook to write to file
 #[cfg(target_os = "android")]
 #[no_mangle]
-fn android_main(app: android_activity::AndroidApp) {
+fn android_main(_app: android_activity::AndroidApp) {
     // Set panic hook to write to external storage
     std::panic::set_hook(Box::new(|info| {
         let log_path = "/sdcard/aix_crash.log";
