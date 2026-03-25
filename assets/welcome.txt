@@ -9,6 +9,7 @@
 ║  • Notes & Tasks (to‑do list)                            ║
 ║  • Calculator & System Info                              ║
 ║  • AI Chat (Markov chain – learns from your messages!)   ║
+║  • Telegram Bot integration (set token in Settings)      ║
 ║                                                          ║
 ║  To navigate, use the top‑bar tabs.                      ║
 ║  Talk to the AI in the Chat tab – it will learn!         ║

@@ -1,13 +1,13 @@
 [package]
 name = "aix"
-version = "2.0.0"
+version = "3.0.0"
 edition = "2021"
 
 [lib]
 crate-type = ["cdylib"]
 
 [dependencies]
-# Async runtime & utilities
+# Async runtime
 tokio = { version = "1", features = ["full"] }
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
@@ -22,22 +22,14 @@ tracing = "0.1"
 tracing-subscriber = "0.3"
 lazy_static = "1.4"
 
-# HTTP client with rustls (no OpenSSL)
+# HTTP client (rustls, no OpenSSL)
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 
-# Telegram bot (with rustls)
+# Telegram bot (rustls)
 teloxide = { version = "0.12", default-features = false, features = ["macros", "webhooks", "rustls"] }
 
-# Vector memory & embeddings
-usearch = "0.1"
-lmdb = "0.8"
-safetensors = "0.4"
-
-# LLM / AI
-candle-core = "0.8"
-candle-transformers = "0.8"
-candle-nn = "0.8"
-tokenizers = "0.21"
+# LLM / AI – Markov chain (pure Rust)
+rand = "0.8"
 
 # Tools
 walkdir = "2"
@@ -45,6 +37,9 @@ zip = "2.2"
 tempfile = "3"
 sysinfo = "0.33"
 notify = "7.0"
+
+# Syntax highlighting
+syntect = "5.2"
 
 # UI
 eframe = { version = "0.30", features = ["android-game-activity", "glow"] }
@@ -60,12 +55,15 @@ android_logger = "0.13"
 crossbeam = "0.8"
 parking_lot = "0.12"
 
+# Persistence
+directories = "5.0"
+
 [target.'cfg(target_os = "android")'.dependencies]
 android-activity = { version = "0.6", features = ["game-activity"] }
 
 [package.metadata.android]
 package = "com.i7m7r8.aix"
-label = "AIX Agent"
+label = "AIX Ultra"
 assets = "assets"
 build_targets = ["aarch64-linux-android"]
 min_sdk_version = 23

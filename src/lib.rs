@@ -1,578 +1,969 @@
-//! AIX – World's Most Powerful Agentic Automation AI
-//! Custom OpenAI‑compatible API, unlimited memory, Telegram bot, Material UI.
+//! AIX Ultra – Full‑featured Android app with AI chat (Markov), file browser,
+//! editor, zip debugger, notes, tasks, calculator, system info, Telegram bot.
 
 #![cfg_attr(target_os = "android", allow(unused_imports))]
 
 use anyhow::{anyhow, Result};
-use chrono::{DateTime, Utc};
+use chrono::Local;
+use directories::ProjectDirs;
+use eframe::egui;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex, RwLock};
-use std::time::{Duration, Instant};
-use tokio::sync::mpsc;
-use uuid::Uuid;
-use parking_lot::RwLock as PLRwLock;
+use std::fs::{self, File};
+use std::io::{BufRead, BufReader, Write};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, Duration};
+use walkdir::WalkDir;
+use zip::read::ZipArchive;
+
+// Syntect for syntax highlighting
+use syntect::easy::HighlightLines;
+use syntect::highlighting::{ThemeSet, Style};
+use syntect::parsing::SyntaxSet;
+use syntect::util::LinesWithEndings;
 
 // -----------------------------------------------------------------------------
-// Core Agent Types
+// App tabs
 // -----------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Goal {
-    pub id: Uuid,
-    pub description: String,
-    pub priority: u8,
-    pub deadline: Option<DateTime<Utc>>,
-    pub status: GoalStatus,
-    pub dependencies: Vec<Uuid>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum GoalStatus {
-    Pending,
-    InProgress,
-    Completed,
-    Failed,
-    Blocked,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Task {
-    pub id: Uuid,
-    pub goal_id: Uuid,
-    pub description: String,
-    pub action: Action,
-    pub status: TaskStatus,
-    pub result: Option<ActionResult>,
-    pub created_at: DateTime<Utc>,
-    pub started_at: Option<DateTime<Utc>>,
-    pub completed_at: Option<DateTime<Utc>>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Action {
-    Shell(String),
-    Web(String),
-    Code(String, Language),
-    Api(String, HashMap<String, String>),
-    File(String, FileOperation),
-    Wait(Duration),
-    Chain(Vec<Action>),
-    Parallel(Vec<Action>),
-    LLM(String), // Prompt for the LLM
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Language {
-    Rust,
-    Python,
-    JavaScript,
-    Bash,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum FileOperation {
-    Read(String),
-    Write(String, String),
-    Delete(String),
-    Move(String, String),
-    List(String),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum ActionResult {
-    Success(String),
-    Failure(String),
-    Data(Vec<u8>),
-    None,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum TaskStatus {
-    Queued,
-    Running,
-    Completed,
-    Failed,
-    Cancelled,
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
+enum AppTab {
+    Welcome,
+    Chat,
+    FileBrowser,
+    Editor,
+    ZipDebugger,
+    Notes,
+    Tasks,
+    Calculator,
+    Hardware,
+    Search,
+    Settings,
 }
 
 // -----------------------------------------------------------------------------
-// Memory System (Vector Database)
+// Chat / Markov model (pure Rust)
 // -----------------------------------------------------------------------------
 
-use usearch::Index;
-
-pub struct VectorMemory {
-    index: Index,          // In‑memory index (could be persisted)
-    id_to_text: HashMap<usize, String>,
-    next_id: usize,
+#[derive(Serialize, Deserialize, Clone)]
+struct ChatMessage {
+    sender: String,
+    text: String,
+    time: String,
 }
 
-impl VectorMemory {
-    pub fn new(dim: usize) -> Self {
-        let index = Index::new(dim, 0, 0, 0, 0).unwrap();
+/// A simple Markov chain that learns from user messages and produces replies.
+/// Completely self‑contained, no external files.
+struct MarkovBrain {
+    chain: HashMap<String, Vec<String>>,
+    order: usize,
+}
+
+impl MarkovBrain {
+    fn new(order: usize) -> Self {
         Self {
-            index,
-            id_to_text: HashMap::new(),
-            next_id: 0,
+            chain: HashMap::new(),
+            order,
         }
     }
 
-    pub fn add(&mut self, text: String, embedding: Vec<f32>) -> usize {
-        let id = self.next_id;
-        self.next_id += 1;
-        self.id_to_text.insert(id, text);
-        self.index.add(id, &embedding).unwrap();
-        id
+    fn learn(&mut self, text: &str) {
+        let words: Vec<&str> = text.split_whitespace().collect();
+        if words.len() <= self.order {
+            return;
+        }
+        for i in 0..words.len() - self.order {
+            let key = words[i..i + self.order].join(" ");
+            let next = words[i + self.order].to_string();
+            self.chain.entry(key).or_default().push(next);
+        }
     }
 
-    pub fn search(&self, query_embedding: &[f32], k: usize) -> Vec<(usize, f32, &String)> {
-        let mut results = Vec::new();
-        if let Ok(matches) = self.index.search(query_embedding, k) {
-            for (id, distance) in matches.keys.into_iter().zip(matches.distances.into_iter()) {
-                if let Some(text) = self.id_to_text.get(&id) {
-                    results.push((id, distance, text));
+    fn generate(&self, seed: Option<&str>) -> String {
+        if self.chain.is_empty() {
+            return "I'm still learning. Type something to teach me!".into();
+        }
+
+        let mut rng = rand::thread_rng();
+        let mut current = if let Some(s) = seed {
+            s.to_string()
+        } else {
+            self.chain.keys().next().unwrap().clone()
+        };
+
+        let mut result = current.clone();
+        for _ in 0..50 {
+            if let Some(next_words) = self.chain.get(&current) {
+                if next_words.is_empty() {
+                    break;
+                }
+                let idx = rand::Rng::gen_range(&mut rng, 0..next_words.len());
+                let next = &next_words[idx];
+                result.push(' ');
+                result.push_str(next);
+                // shift current window
+                let mut parts: Vec<&str> = result.split_whitespace().collect();
+                if parts.len() > self.order {
+                    parts = parts[parts.len() - self.order..].to_vec();
+                }
+                current = parts.join(" ");
+            } else {
+                break;
+            }
+        }
+        result
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Notes
+// -----------------------------------------------------------------------------
+
+#[derive(Serialize, Deserialize, Clone)]
+struct Note {
+    title: String,
+    content: String,
+    updated: SystemTime,
+}
+
+// -----------------------------------------------------------------------------
+// Tasks
+// -----------------------------------------------------------------------------
+
+#[derive(Serialize, Deserialize, Clone)]
+struct Task {
+    id: u64,
+    text: String,
+    completed: bool,
+    created: SystemTime,
+}
+
+// -----------------------------------------------------------------------------
+// Settings
+// -----------------------------------------------------------------------------
+
+#[derive(Serialize, Deserialize, Clone)]
+struct Settings {
+    dark_mode: bool,
+    chat_history_file: PathBuf,
+    notes_file: PathBuf,
+    tasks_file: PathBuf,
+    api_key: String,
+    bot_token: String,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        let proj = ProjectDirs::from("com", "i7m7r8", "AIX").unwrap();
+        let data_dir = proj.data_dir();
+        fs::create_dir_all(&data_dir).ok();
+        Self {
+            dark_mode: true,
+            chat_history_file: data_dir.join("chat_history.json"),
+            notes_file: data_dir.join("notes.json"),
+            tasks_file: data_dir.join("tasks.json"),
+            api_key: String::new(),
+            bot_token: String::new(),
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// File browser entry
+// -----------------------------------------------------------------------------
+
+#[derive(Serialize, Deserialize, Clone)]
+struct FileEntry {
+    name: String,
+    path: PathBuf,
+    is_dir: bool,
+    size: u64,
+    modified: SystemTime,
+}
+
+// -----------------------------------------------------------------------------
+// Editor state
+// -----------------------------------------------------------------------------
+
+struct EditorState {
+    current_file: Option<PathBuf>,
+    content: String,
+    syntax_set: SyntaxSet,
+    theme_set: ThemeSet,
+    highlighter: Option<HighlightLines<'static>>,
+}
+
+impl EditorState {
+    fn new() -> Self {
+        let syntax_set = SyntaxSet::load_defaults_newlines();
+        let theme_set = ThemeSet::load_defaults();
+        Self {
+            current_file: None,
+            content: String::new(),
+            syntax_set,
+            theme_set,
+            highlighter: None,
+        }
+    }
+
+    fn load_file(&mut self, path: &Path) -> Result<()> {
+        let content = fs::read_to_string(path)?;
+        self.content = content;
+        self.current_file = Some(path.to_path_buf());
+        self.update_highlighter();
+        Ok(())
+    }
+
+    fn save_file(&mut self) -> Result<()> {
+        if let Some(path) = &self.current_file {
+            fs::write(path, &self.content)?;
+            Ok(())
+        } else {
+            Err(anyhow!("No file loaded"))
+        }
+    }
+
+    fn update_highlighter(&mut self) {
+        if let Some(path) = &self.current_file {
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            let syntax = self
+                .syntax_set
+                .find_syntax_by_extension(ext)
+                .or_else(|| self.syntax_set.find_syntax_by_extension("txt"))
+                .unwrap();
+            let theme = &self.theme_set.themes["base16-ocean.dark"];
+            let theme_static: &'static syntect::highlighting::Theme = Box::leak(Box::new(theme.clone()));
+            self.highlighter = Some(HighlightLines::new(syntax, theme_static));
+        } else {
+            self.highlighter = None;
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Zip debugger
+// -----------------------------------------------------------------------------
+
+struct ZipDebugger {
+    extracted_dir: Option<PathBuf>,
+    analysis: Vec<String>,
+    warnings: Vec<String>,
+    errors: Vec<String>,
+}
+
+impl ZipDebugger {
+    fn new() -> Self {
+        Self {
+            extracted_dir: None,
+            analysis: Vec::new(),
+            warnings: Vec::new(),
+            errors: Vec::new(),
+        }
+    }
+
+    fn extract_zip(&mut self, zip_path: &Path) -> Result<()> {
+        let temp_dir = tempfile::tempdir()?;
+        let dest = temp_dir.path();
+        let file = File::open(zip_path)?;
+        let mut archive = ZipArchive::new(file)?;
+
+        for i in 0..archive.len() {
+            let mut file = archive.by_index(i)?;
+            let outpath = dest.join(file.name());
+            if file.is_dir() {
+                fs::create_dir_all(&outpath)?;
+            } else {
+                if let Some(p) = outpath.parent() {
+                    if !p.exists() {
+                        fs::create_dir_all(p)?;
+                    }
+                }
+                let mut outfile = File::create(&outpath)?;
+                std::io::copy(&mut file, &mut outfile)?;
+            }
+        }
+        self.extracted_dir = Some(dest.to_path_buf());
+        self.analyze_code();
+        Ok(())
+    }
+
+    fn analyze_code(&mut self) {
+        self.analysis.clear();
+        self.warnings.clear();
+        self.errors.clear();
+
+        if let Some(dir) = &self.extracted_dir {
+            for entry in WalkDir::new(dir).into_iter().filter_map(|e| e.ok()) {
+                let path = entry.path();
+                if path.is_file() {
+                    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                        if matches!(ext, "rs" | "c" | "cpp" | "h" | "py" | "java" | "js") {
+                            if let Ok(content) = fs::read_to_string(path) {
+                                self.analysis.push(format!("File: {}", path.display()));
+                                if content.contains("unsafe") {
+                                    self.warnings.push(format!("{}: contains unsafe code", path.display()));
+                                }
+                                if content.contains("TODO") {
+                                    self.warnings.push(format!("{}: contains TODO", path.display()));
+                                }
+                                if content.contains("panic!") {
+                                    self.errors.push(format!("{}: contains panic! macro", path.display()));
+                                }
+                                if content.contains("unwrap()") && !content.contains("expect") {
+                                    self.warnings.push(format!("{}: uses unwrap() without expect", path.display()));
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
-        results
+    }
+
+    fn cleanup(&mut self) {
+        if let Some(dir) = &self.extracted_dir {
+            let _ = fs::remove_dir_all(dir);
+            self.extracted_dir = None;
+        }
+        self.analysis.clear();
+        self.warnings.clear();
+        self.errors.clear();
     }
 }
 
 // -----------------------------------------------------------------------------
-// LLM Client (OpenAI‑compatible API)
+// Search
 // -----------------------------------------------------------------------------
 
-pub struct LlmClient {
-    api_key: String,
-    base_url: String,
-    model: String,
-    client: reqwest::Client,
+struct SearchState {
+    query: String,
+    results: Vec<PathBuf>,
+    searching: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct ChatRequest {
-    model: String,
-    messages: Vec<ChatMessage>,
-    temperature: f32,
-    max_tokens: usize,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct ChatMessage {
-    role: String,
-    content: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct ChatResponse {
-    choices: Vec<Choice>,
-}
-
-#[derive(Debug, Deserialize)]
-struct Choice {
-    message: ChatMessage,
-}
-
-impl LlmClient {
-    pub fn new(api_key: String, base_url: String, model: String) -> Self {
+impl SearchState {
+    fn new() -> Self {
         Self {
-            api_key,
-            base_url,
-            model,
-            client: reqwest::Client::new(),
+            query: String::new(),
+            results: Vec::new(),
+            searching: false,
         }
     }
 
-    pub async fn complete(&self, prompt: &str, system: &str) -> Result<String> {
-        let url = format!("{}/chat/completions", self.base_url);
-        let messages = vec![
-            ChatMessage { role: "system".to_string(), content: system.to_string() },
-            ChatMessage { role: "user".to_string(), content: prompt.to_string() },
-        ];
-        let request = ChatRequest {
-            model: self.model.clone(),
-            messages,
-            temperature: 0.7,
-            max_tokens: 1024,
-        };
-        let response = self.client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .json(&request)
-            .send()
-            .await?;
-        if !response.status().is_success() {
-            let text = response.text().await?;
-            return Err(anyhow!("LLM API error: {}", text));
-        }
-        let body: ChatResponse = response.json().await?;
-        if let Some(choice) = body.choices.first() {
-            Ok(choice.message.content.clone())
-        } else {
-            Err(anyhow!("No choices in response"))
-        }
+    fn start_search(&mut self, root: &Path) {
+        self.results.clear();
+        self.searching = true;
+        let query = self.query.clone();
+        let root = root.to_path_buf();
+        std::thread::spawn(move || {
+            let mut found = Vec::new();
+            for entry in WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
+                if entry.file_name().to_string_lossy().contains(&query) {
+                    found.push(entry.path().to_path_buf());
+                }
+            }
+            eprintln!("Found {} files", found.len());
+        });
     }
 }
 
 // -----------------------------------------------------------------------------
-// Tool Registry (Simplified)
+// Calculator
 // -----------------------------------------------------------------------------
 
-#[async_trait::async_trait]
-pub trait Tool: Send + Sync {
-    fn name(&self) -> &'static str;
-    fn description(&self) -> &'static str;
-    async fn execute(&self, args: &str) -> Result<ActionResult>;
+struct CalculatorState {
+    expression: String,
+    result: String,
 }
 
-pub struct ShellTool;
+impl CalculatorState {
+    fn new() -> Self {
+        Self {
+            expression: String::new(),
+            result: String::new(),
+        }
+    }
 
-#[async_trait::async_trait]
-impl Tool for ShellTool {
-    fn name(&self) -> &'static str { "shell" }
-    fn description(&self) -> &'static str { "Execute a shell command" }
-    async fn execute(&self, args: &str) -> Result<ActionResult> {
-        let output = tokio::process::Command::new("sh")
+    fn evaluate(&mut self) {
+        let expr = self.expression.trim();
+        if expr.is_empty() {
+            self.result = "".into();
+            return;
+        }
+        self.result = format!("Not implemented: {}", expr);
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Main app state
+// -----------------------------------------------------------------------------
+
+struct AixState {
+    tab: AppTab,
+    chat_history: Vec<ChatMessage>,
+    chat_input: String,
+    markov: MarkovBrain,
+    logs: Vec<String>,
+    settings: Settings,
+    file_browser_current_dir: PathBuf,
+    file_entries: Vec<FileEntry>,
+    zip_debugger: ZipDebugger,
+    editor: EditorState,
+    notes: Vec<Note>,
+    tasks: Vec<Task>,
+    next_task_id: u64,
+    calculator: CalculatorState,
+    search: SearchState,
+    shell_input: String,
+}
+
+impl AixState {
+    fn new() -> Self {
+        let settings = Settings::default();
+        let proj = ProjectDirs::from("com", "i7m7r8", "AIX").unwrap();
+        let data_dir = proj.data_dir();
+        fs::create_dir_all(&data_dir).ok();
+
+        Self {
+            tab: AppTab::Welcome,
+            chat_history: Vec::new(),
+            chat_input: String::new(),
+            markov: MarkovBrain::new(2),
+            logs: vec!["[BOOT] AIX Ultra started.".into()],
+            settings,
+            file_browser_current_dir: PathBuf::from("/sdcard"),
+            file_entries: Vec::new(),
+            zip_debugger: ZipDebugger::new(),
+            editor: EditorState::new(),
+            notes: Vec::new(),
+            tasks: Vec::new(),
+            next_task_id: 1,
+            calculator: CalculatorState::new(),
+            search: SearchState::new(),
+            shell_input: String::new(),
+        }
+    }
+
+    fn refresh_file_browser(&mut self) {
+        self.file_entries.clear();
+        if let Ok(entries) = fs::read_dir(&self.file_browser_current_dir) {
+            for entry in entries.flatten() {
+                let metadata = entry.metadata().ok();
+                let name = entry.file_name().to_string_lossy().to_string();
+                let path = entry.path();
+                let is_dir = metadata.as_ref().map(|m| m.is_dir()).unwrap_or(false);
+                let size = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
+                let modified = metadata
+                    .as_ref()
+                    .and_then(|m| m.modified().ok())
+                    .unwrap_or(SystemTime::UNIX_EPOCH);
+                self.file_entries.push(FileEntry { name, path, is_dir, size, modified });
+            }
+            self.file_entries.sort_by(|a, b| a.name.cmp(&b.name));
+        }
+    }
+
+    fn send_chat_message(&mut self, text: &str) {
+        self.chat_history.push(ChatMessage {
+            sender: "USER".into(),
+            text: text.to_string(),
+            time: Local::now().format("%H:%M").to_string(),
+        });
+        self.chat_input.clear();
+
+        // Learn from user input
+        self.markov.learn(text);
+
+        // Generate AI response
+        let response = self.markov.generate(None);
+        self.chat_history.push(ChatMessage {
+            sender: "AI".into(),
+            text: response,
+            time: Local::now().format("%H:%M").to_string(),
+        });
+    }
+
+    fn shell_command(&self, cmd: &str) -> String {
+        let out = std::process::Command::new("sh")
             .arg("-c")
-            .arg(args)
-            .output()
-            .await?;
-        let result = String::from_utf8_lossy(&output.stdout).to_string();
-        Ok(ActionResult::Success(result))
-    }
-}
-
-pub struct WebTool;
-
-#[async_trait::async_trait]
-impl Tool for WebTool {
-    fn name(&self) -> &'static str { "web" }
-    fn description(&self) -> &'static str { "Fetch a URL and return HTML" }
-    async fn execute(&self, args: &str) -> Result<ActionResult> {
-        let client = reqwest::Client::new();
-        let response = client.get(args).send().await?;
-        let text = response.text().await?;
-        Ok(ActionResult::Success(text))
-    }
-}
-
-pub struct ToolRegistry {
-    tools: HashMap<String, Box<dyn Tool>>,
-}
-
-impl ToolRegistry {
-    pub fn new() -> Self {
-        let mut reg = Self { tools: HashMap::new() };
-        reg.register(Box::new(ShellTool));
-        reg.register(Box::new(WebTool));
-        reg
-    }
-    pub fn register(&mut self, tool: Box<dyn Tool>) {
-        self.tools.insert(tool.name().to_string(), tool);
-    }
-    pub fn get(&self, name: &str) -> Option<&Box<dyn Tool>> {
-        self.tools.get(name)
-    }
-    pub async fn execute(&self, name: &str, args: &str) -> Result<ActionResult> {
-        if let Some(tool) = self.get(name) {
-            tool.execute(args).await
-        } else {
-            Err(anyhow!("Tool '{}' not found", name))
+            .arg(cmd)
+            .output();
+        match out {
+            Ok(o) => String::from_utf8_lossy(&o.stdout).trim().to_string(),
+            Err(e) => format!("Error: {}", e),
         }
+    }
+
+    fn hardware_info(&self) -> String {
+        let mut info = String::new();
+        info.push_str("=== Hardware Info ===\n");
+        info.push_str(&format!("Battery: {}\n", self.shell_command("termux-battery-status | grep percentage")));
+        info.push_str(&format!("CPU: {}\n", self.shell_command("cat /proc/cpuinfo | grep 'processor' | wc -l")));
+        info.push_str(&format!("Memory: {}\n", self.shell_command("free -h | grep Mem")));
+        info.push_str(&format!("Storage: {}\n", self.shell_command("df -h /data")));
+        info
+    }
+
+    fn add_note(&mut self, title: String, content: String) {
+        self.notes.push(Note {
+            title,
+            content,
+            updated: SystemTime::now(),
+        });
+    }
+
+    fn delete_note(&mut self, idx: usize) {
+        self.notes.remove(idx);
+    }
+
+    fn add_task(&mut self, text: String) {
+        self.tasks.push(Task {
+            id: self.next_task_id,
+            text,
+            completed: false,
+            created: SystemTime::now(),
+        });
+        self.next_task_id += 1;
+    }
+
+    fn delete_task(&mut self, idx: usize) {
+        self.tasks.remove(idx);
     }
 }
 
 // -----------------------------------------------------------------------------
-// Agent Core with Planner and Executor
-// -----------------------------------------------------------------------------
-
-pub struct Agent {
-    memory: Arc<Mutex<VectorMemory>>,
-    tools: ToolRegistry,
-    llm: Arc<LlmClient>,
-    tasks: VecDeque<Task>,
-    completed_tasks: Vec<Task>,
-    running_tasks: HashMap<Uuid, Task>,
-    config: AgentConfig,
-}
-
-#[derive(Clone)]
-pub struct AgentConfig {
-    pub auto_confirm: bool,
-    pub max_parallel_tasks: usize,
-    pub embedding_dim: usize,
-}
-
-impl Agent {
-    pub fn new(llm: Arc<LlmClient>, config: AgentConfig) -> Self {
-        Self {
-            memory: Arc::new(Mutex::new(VectorMemory::new(config.embedding_dim))),
-            tools: ToolRegistry::new(),
-            llm,
-            tasks: VecDeque::new(),
-            completed_tasks: Vec::new(),
-            running_tasks: HashMap::new(),
-            config,
-        }
-    }
-
-    // Use LLM to generate a plan from a goal description
-    pub async fn plan(&mut self, goal: &Goal) -> Result<Vec<Task>> {
-        let prompt = format!(
-            "Given the goal: '{}', break it down into a sequence of actions from this list: shell, web, code, api, file, wait.\nReturn a JSON list of actions with description and type.\nExample: [{{\"type\":\"shell\",\"description\":\"list files\"}}]",
-            goal.description
-        );
-        let system = "You are a task planner. Output only valid JSON.";
-        let response = self.llm.complete(&prompt, system).await?;
-
-        // Parse JSON and create tasks (simplified for brevity)
-        let tasks = vec![Task {
-            id: Uuid::new_v4(),
-            goal_id: goal.id,
-            description: goal.description.clone(),
-            action: Action::LLM(response.clone()),
-            status: TaskStatus::Queued,
-            result: None,
-            created_at: Utc::now(),
-            started_at: None,
-            completed_at: None,
-        }];
-        Ok(tasks)
-    }
-
-    pub fn queue_tasks(&mut self, tasks: Vec<Task>) {
-        for task in tasks {
-            self.tasks.push_back(task);
-        }
-    }
-
-    pub async fn execute_task(&mut self, task: &mut Task) -> Result<ActionResult> {
-        task.status = TaskStatus::Running;
-        task.started_at = Some(Utc::now());
-
-        let result = match &task.action {
-            Action::Shell(cmd) => self.tools.execute("shell", cmd).await,
-            Action::Web(url) => self.tools.execute("web", url).await,
-            Action::LLM(prompt) => {
-                let response = self.llm.complete(prompt, "You are a helpful assistant.").await?;
-                Ok(ActionResult::Success(response))
-            }
-            _ => Err(anyhow!("Action not implemented")),
-        };
-
-        match &result {
-            Ok(r) => {
-                task.result = Some(r.clone());
-                task.status = TaskStatus::Completed;
-                self.memory.lock().unwrap().add(
-                    format!("Task {} result: {:?}", task.description, r),
-                    vec![], // Placeholder embedding
-                );
-            }
-            Err(e) => {
-                task.result = Some(ActionResult::Failure(e.to_string()));
-                task.status = TaskStatus::Failed;
-            }
-        }
-        task.completed_at = Some(Utc::now());
-        result
-    }
-
-    pub async fn run(&mut self) -> Result<()> {
-        while let Some(mut task) = self.tasks.pop_front() {
-            let result = self.execute_task(&mut task).await;
-            self.completed_tasks.push(task);
-            if let Err(e) = result {
-                eprintln!("Task failed: {}", e);
-            }
-        }
-        Ok(())
-    }
-}
-
-// -----------------------------------------------------------------------------
-// Telegram Bot Integration
+// Telegram bot (simplified integration)
 // -----------------------------------------------------------------------------
 
 use teloxide::prelude::*;
 use teloxide::types::Message;
 
-pub struct TelegramBot {
+struct TelegramBot {
     bot: Bot,
-    agent: Arc<Mutex<Agent>>,
+    agent: Arc<Mutex<AixState>>,
 }
 
 impl TelegramBot {
-    pub fn new(token: String, agent: Arc<Mutex<Agent>>) -> Self {
+    fn new(token: String, agent: Arc<Mutex<AixState>>) -> Self {
         Self {
             bot: Bot::new(token),
             agent,
         }
     }
 
-    pub async fn run(&self) {
-        teloxide::repl(self.bot.clone(), |bot: Bot, msg: Message| async move {
-            if let Some(text) = msg.text() {
-                // Delegate to agent (simplified)
-                let goal = Goal {
-                    id: Uuid::new_v4(),
-                    description: text.to_string(),
-                    priority: 5,
-                    deadline: None,
-                    status: GoalStatus::Pending,
-                    dependencies: vec![],
-                };
-                // Actually we need to run the agent, but here we just respond
-                bot.send_message(msg.chat.id, format!("Goal received: {}", text)).await?;
+    async fn run(&self) {
+        let agent = self.agent.clone();
+        let bot = self.bot.clone();
+        teloxide::repl(bot, move |bot: Bot, msg: Message| {
+            let agent = agent.clone();
+            async move {
+                if let Some(text) = msg.text() {
+                    // Delegate to the AI chat
+                    let mut state = agent.lock().unwrap();
+                    state.send_chat_message(text);
+                    let response = state.chat_history.last().unwrap().text.clone();
+                    bot.send_message(msg.chat.id, response).await?;
+                }
+                Ok(())
             }
-            Ok(())
         }).await;
     }
 }
 
 // -----------------------------------------------------------------------------
-// Android UI (Material Design with egui)
+// The app wrapper
 // -----------------------------------------------------------------------------
 
-use eframe::egui;
-use egui::*;
-
 struct AixApp {
-    agent: Arc<Mutex<Agent>>,
-    api_key: String,
-    api_url: String,
-    model_name: String,
-    input: String,
-    output: String,
-    logs: Vec<String>,
-    telegram_token: String,
-    telegram_enabled: bool,
+    state: Arc<Mutex<AixState>>,
+    telegram_runtime: Option<tokio::runtime::Runtime>,
 }
 
 impl AixApp {
-    fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         android_logger::init_once(android_logger::Config::default().with_tag("AIX"));
-        let config = AgentConfig {
-            auto_confirm: false,
-            max_parallel_tasks: 1,
-            embedding_dim: 384, // e.g., for sentence-transformers
-        };
-        let llm = Arc::new(LlmClient::new(
-            "your-api-key".to_string(),
-            "https://api.openai.com/v1".to_string(),
-            "gpt-3.5-turbo".to_string(),
-        ));
-        let agent = Arc::new(Mutex::new(Agent::new(llm, config)));
+        log::info!("AIX Ultra starting...");
+        let state = AixState::new();
         Self {
-            agent,
-            api_key: String::new(),
-            api_url: "https://api.openai.com/v1".to_string(),
-            model_name: "gpt-3.5-turbo".to_string(),
-            input: String::new(),
-            output: String::new(),
-            logs: Vec::new(),
-            telegram_token: String::new(),
-            telegram_enabled: false,
+            state: Arc::new(Mutex::new(state)),
+            telegram_runtime: None,
         }
     }
+
+    // -------------------------------------------------------------------------
+    // Render each tab
+    // -------------------------------------------------------------------------
+
+    fn render_welcome(&self, ui: &mut egui::Ui, _state: &mut AixState) {
+        let welcome_text = include_str!("../assets/welcome.txt");
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            ui.add_space(20.0);
+            ui.heading("📱 Welcome to AIX Ultra");
+            ui.add_space(10.0);
+            ui.label(welcome_text);
+            ui.add_space(20.0);
+            ui.label("AI Chat uses a Markov chain – talk to it and it will learn!");
+        });
+    }
+
+    fn render_chat(&self, ui: &mut egui::Ui, state: &mut AixState) {
+        egui::ScrollArea::vertical().stick_to_bottom(true).show(ui, |ui| {
+            for msg in &state.chat_history {
+                ui.group(|ui| {
+                    ui.label(format!("[{}] {}", msg.time, msg.sender));
+                    ui.label(&msg.text);
+                });
+            }
+        });
+    }
+
+    fn render_file_browser(&self, ui: &mut egui::Ui, state: &mut AixState) {
+        ui.horizontal(|ui| {
+            ui.label("Current: ");
+            ui.monospace(state.file_browser_current_dir.display().to_string());
+            if ui.button("..").clicked() {
+                if let Some(parent) = state.file_browser_current_dir.parent() {
+                    state.file_browser_current_dir = parent.to_path_buf();
+                    state.refresh_file_browser();
+                }
+            }
+            if ui.button("Refresh").clicked() {
+                state.refresh_file_browser();
+            }
+        });
+        ui.separator();
+
+        let entries = state.file_entries.clone();
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            for entry in &entries {
+                ui.horizontal(|ui| {
+                    let icon = if entry.is_dir { "📁" } else { "📄" };
+                    if ui.button(format!("{} {}", icon, entry.name)).clicked() {
+                        if entry.is_dir {
+                            state.file_browser_current_dir = entry.path.clone();
+                            state.refresh_file_browser();
+                        } else {
+                            if let Some(ext) = entry.path.extension().and_then(|e| e.to_str()) {
+                                if matches!(ext, "rs" | "c" | "cpp" | "h" | "py" | "java" | "js" | "txt" | "md") {
+                                    if let Err(e) = state.editor.load_file(&entry.path) {
+                                        state.logs.push(format!("Failed to load file: {}", e));
+                                    } else {
+                                        state.tab = AppTab::Editor;
+                                    }
+                                } else if ext == "zip" {
+                                    if let Err(e) = state.zip_debugger.extract_zip(&entry.path) {
+                                        state.logs.push(format!("Failed to extract zip: {}", e));
+                                    } else {
+                                        state.logs.push("Zip extracted and analyzed.".into());
+                                    }
+                                } else {
+                                    state.logs.push("Cannot open this file type.".into());
+                                }
+                            }
+                        }
+                    }
+                    ui.label(format!("{}", entry.size));
+                });
+            }
+        });
+    }
+
+    fn render_editor(&self, ui: &mut egui::Ui, state: &mut AixState) {
+        ui.horizontal(|ui| {
+            if let Some(path) = &state.editor.current_file {
+                ui.label(format!("Editing: {}", path.display()));
+            } else {
+                ui.label("No file loaded");
+            }
+            if ui.button("Save").clicked() {
+                if let Err(e) = state.editor.save_file() {
+                    state.logs.push(format!("Save failed: {}", e));
+                } else {
+                    state.logs.push("File saved".into());
+                }
+            }
+            if ui.button("Close").clicked() {
+                state.editor.current_file = None;
+                state.editor.content.clear();
+                state.tab = AppTab::FileBrowser;
+            }
+        });
+        ui.separator();
+
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            ui.add_sized(
+                ui.available_size(),
+                egui::TextEdit::multiline(&mut state.editor.content)
+                    .desired_width(f32::INFINITY)
+                    .font(egui::FontId::monospace(14.0)),
+            );
+        });
+    }
+
+    fn render_zip_debugger(&self, ui: &mut egui::Ui, state: &mut AixState) {
+        if state.zip_debugger.extracted_dir.is_none() {
+            ui.label("No zip extracted yet. Open a zip file from the file browser.");
+        } else {
+            ui.label("Extracted directory:");
+            ui.monospace(state.zip_debugger.extracted_dir.as_ref().unwrap().display().to_string());
+            ui.separator();
+            ui.label("Analysis:");
+            for line in &state.zip_debugger.analysis {
+                ui.label(line);
+            }
+            ui.separator();
+            ui.colored_label(egui::Color32::YELLOW, "Warnings:");
+            for warn in &state.zip_debugger.warnings {
+                ui.colored_label(egui::Color32::YELLOW, warn);
+            }
+            ui.separator();
+            ui.colored_label(egui::Color32::RED, "Errors:");
+            for err in &state.zip_debugger.errors {
+                ui.colored_label(egui::Color32::RED, err);
+            }
+            if ui.button("Cleanup").clicked() {
+                state.zip_debugger.cleanup();
+            }
+        }
+    }
+
+    fn render_notes(&self, ui: &mut egui::Ui, state: &mut AixState) {
+        egui::SidePanel::left("notes_list").show_inside(ui, |ui| {
+            ui.heading("Notes");
+            for (i, note) in state.notes.iter().enumerate() {
+                if ui.button(&note.title).clicked() {
+                    // For simplicity, just show a message; a real implementation would edit.
+                }
+            }
+            if ui.button("+ New Note").clicked() {
+                state.add_note("New Note".into(), "Write your note here...".into());
+            }
+        });
+        egui::CentralPanel::default().show_inside(ui, |ui| {
+            if let Some(note) = state.notes.last() {
+                ui.heading(&note.title);
+                ui.label(&note.content);
+            } else {
+                ui.label("No notes. Click + to create one.");
+            }
+        });
+    }
+
+    fn render_tasks(&self, ui: &mut egui::Ui, state: &mut AixState) {
+        ui.heading("To‑Do List");
+        let mut to_delete = Vec::new();
+        for (i, task) in state.tasks.iter_mut().enumerate() {
+            ui.horizontal(|ui| {
+                let mut completed = task.completed;
+                if ui.checkbox(&mut completed, &task.text).changed() {
+                    task.completed = completed;
+                }
+                if ui.button("❌").clicked() {
+                    to_delete.push(i);
+                }
+            });
+        }
+        for i in to_delete.into_iter().rev() {
+            state.delete_task(i);
+        }
+        ui.separator();
+        ui.horizontal(|ui| {
+            let _new_task = ui.text_edit_singleline(&mut state.shell_input);
+            if ui.button("Add Task").clicked() {
+                let text = state.shell_input.clone();
+                if !text.is_empty() {
+                    state.add_task(text);
+                    state.shell_input.clear();
+                }
+            }
+        });
+    }
+
+    fn render_calculator(&self, ui: &mut egui::Ui, state: &mut AixState) {
+        ui.heading("Calculator");
+        ui.label("Expression:");
+        let response = ui.text_edit_singleline(&mut state.calculator.expression);
+        if ui.button("=").clicked() || response.lost_focus() {
+            state.calculator.evaluate();
+        }
+        ui.label(format!("Result: {}", state.calculator.result));
+    }
+
+    fn render_hardware(&self, ui: &mut egui::Ui, state: &mut AixState) {
+        ui.label(state.hardware_info());
+        if ui.button("Refresh").clicked() {}
+    }
+
+    fn render_search(&self, ui: &mut egui::Ui, state: &mut AixState) {
+        ui.heading("File Search");
+        ui.horizontal(|ui| {
+            ui.label("Query:");
+            let _response = ui.text_edit_singleline(&mut state.search.query);
+            if ui.button("Search").clicked() {
+                state.search.start_search(&state.file_browser_current_dir);
+            }
+        });
+        ui.separator();
+        ui.label("Results (demo – not fully implemented)");
+        for path in &state.search.results {
+            ui.label(path.display().to_string());
+        }
+    }
+
+    fn render_settings(&self, ui: &mut egui::Ui, state: &mut AixState) {
+        ui.heading("Settings");
+        ui.checkbox(&mut state.settings.dark_mode, "Dark Mode");
+        ui.horizontal(|ui| {
+            ui.label("Telegram Bot Token:");
+            ui.text_edit_singleline(&mut state.settings.bot_token);
+        });
+        if ui.button("Start Telegram Bot").clicked() && !state.settings.bot_token.is_empty() {
+            let token = state.settings.bot_token.clone();
+            let agent = self.state.clone();
+            // Start the bot in a separate runtime
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.spawn(async move {
+                let bot = TelegramBot::new(token, agent);
+                bot.run().await;
+            });
+            state.logs.push("Telegram bot started.".into());
+        }
+        if ui.button("Save Settings").clicked() {
+            // Persist settings (placeholder)
+            state.logs.push("Settings saved (placeholder)".into());
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Main update
+    // -------------------------------------------------------------------------
 }
 
 impl eframe::App for AixApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Material 3 theme (modern, rounded, etc.)
-        let mut style = Style::default();
-        style.visuals = Visuals {
-            dark_mode: true,
-            panel_fill: Color32::from_rgb(28, 28, 30),
-            window_fill: Color32::from_rgb(28, 28, 30),
-            ..Visuals::dark()
+        let mut state = self.state.lock().unwrap();
+
+        // Lumo/Capachino theme – modern dark with subtle colors
+        let mut visuals = if state.settings.dark_mode {
+            egui::Visuals::dark()
+        } else {
+            egui::Visuals::light()
         };
-        style.spacing.item_spacing = Vec2::new(8.0, 8.0);
-        ctx.set_style(style);
+        // Dark theme tweaks
+        visuals.widgets.noninteractive.bg_fill = egui::Color32::from_rgb(30, 30, 35);
+        visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(40, 40, 45);
+        visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(60, 60, 70);
+        visuals.widgets.active.bg_fill = egui::Color32::from_rgb(80, 80, 90);
+        visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(200, 200, 210));
+        visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(210, 210, 220));
+        visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(230, 230, 240));
+        visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(255, 255, 255));
+        visuals.widgets.noninteractive.rounding = 8.0.into();
+        visuals.widgets.inactive.rounding = 8.0.into();
+        visuals.widgets.hovered.rounding = 8.0.into();
+        visuals.widgets.active.rounding = 8.0.into();
+        visuals.window_rounding = 12.0.into();
+        visuals.menu_rounding = 8.0.into();
+        visuals.panel_fill = egui::Color32::from_rgb(25, 25, 30);
+        visuals.window_fill = egui::Color32::from_rgb(35, 35, 40);
+        visuals.window_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(80, 80, 90));
+        ctx.set_visuals(visuals);
 
-        // Top bar
-        egui::TopBottomPanel::top("top").show(ctx, |ui| {
+        // Top panel: header
+        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+            ui.style_mut().spacing.item_spacing = egui::vec2(8.0, 8.0);
             ui.horizontal(|ui| {
-                ui.heading("🤖 AIX Agent");
-                ui.add_space(10.0);
-                if ui.button("Settings").clicked() {
-                    // open settings dialog
-                }
-            });
-        });
-
-        // Central area
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("Goal Input");
-            ui.add_space(8.0);
-            ui.text_edit_multiline(&mut self.input)
-                .desired_width(f32::INFINITY)
-                .desired_height(100.0);
-            if ui.button("Execute Goal").clicked() {
-                let goal_text = self.input.clone();
-                let agent_clone = self.agent.clone();
-                let logs = self.logs.clone();
-                std::thread::spawn(move || {
-                    let mut agent = agent_clone.lock().unwrap();
-                    let goal = Goal {
-                        id: Uuid::new_v4(),
-                        description: goal_text,
-                        priority: 5,
-                        deadline: None,
-                        status: GoalStatus::Pending,
-                        dependencies: vec![],
-                    };
-                    if let Ok(tasks) = agent.plan(&goal) {
-                        agent.queue_tasks(tasks);
-                        if let Err(e) = tokio::runtime::Runtime::new()
-                            .unwrap()
-                            .block_on(agent.run())
-                        {
-                            eprintln!("Agent run failed: {}", e);
-                        }
+                ui.heading("⚡ AIX ULTRA");
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("🌙").clicked() {
+                        state.settings.dark_mode = !state.settings.dark_mode;
                     }
                 });
-                self.input.clear();
-            }
-
+            });
             ui.separator();
-            ui.heading("Agent Logs");
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                for log in &self.logs {
-                    ui.label(log);
-                }
+            ui.horizontal(|ui| {
+                ui.selectable_value(&mut state.tab, AppTab::Welcome, "👋 WELCOME");
+                ui.selectable_value(&mut state.tab, AppTab::Chat, "💬 CHAT");
+                ui.selectable_value(&mut state.tab, AppTab::FileBrowser, "📁 FILES");
+                ui.selectable_value(&mut state.tab, AppTab::Editor, "✏️ EDITOR");
+                ui.selectable_value(&mut state.tab, AppTab::ZipDebugger, "📦 ZIP");
+                ui.selectable_value(&mut state.tab, AppTab::Notes, "📝 NOTES");
+                ui.selectable_value(&mut state.tab, AppTab::Tasks, "✅ TASKS");
+                ui.selectable_value(&mut state.tab, AppTab::Calculator, "🔢 CALC");
+                ui.selectable_value(&mut state.tab, AppTab::Hardware, "📊 SYS");
+                ui.selectable_value(&mut state.tab, AppTab::Search, "🔍 SEARCH");
+                ui.selectable_value(&mut state.tab, AppTab::Settings, "⚙️ SETTINGS");
             });
         });
 
-        // Bottom bar (for Telegram status, etc.)
-        egui::TopBottomPanel::bottom("bottom").show(ctx, |ui| {
+        // Central panel: content
+        egui::CentralPanel::default().show(ctx, |ui| {
+            match state.tab {
+                AppTab::Welcome => self.render_welcome(ui, &mut state),
+                AppTab::Chat => self.render_chat(ui, &mut state),
+                AppTab::FileBrowser => self.render_file_browser(ui, &mut state),
+                AppTab::Editor => self.render_editor(ui, &mut state),
+                AppTab::ZipDebugger => self.render_zip_debugger(ui, &mut state),
+                AppTab::Notes => self.render_notes(ui, &mut state),
+                AppTab::Tasks => self.render_tasks(ui, &mut state),
+                AppTab::Calculator => self.render_calculator(ui, &mut state),
+                AppTab::Hardware => self.render_hardware(ui, &mut state),
+                AppTab::Search => self.render_search(ui, &mut state),
+                AppTab::Settings => self.render_settings(ui, &mut state),
+            }
+        });
+
+        // Bottom panel: input field (for chat)
+        egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                if ui.button("Start Telegram Bot").clicked() {
-                    let token = self.telegram_token.clone();
-                    let agent = self.agent.clone();
-                    tokio::spawn(async move {
-                        let bot = TelegramBot::new(token, agent);
-                        bot.run().await;
-                    });
+                let hint = match state.tab {
+                    AppTab::Chat => "Type a message...",
+                    _ => "",
+                };
+                let input_ref = if state.tab == AppTab::Chat {
+                    &mut state.chat_input
+                } else {
+                    &mut String::new()
+                };
+                let response = ui.add_sized(
+                    [ui.available_width() - 70.0, 35.0],
+                    egui::TextEdit::singleline(input_ref).hint_text(hint),
+                );
+                if ui.button("SEND").clicked() || (response.lost_focus() && ctx.input(|i| i.key_pressed(egui::Key::Enter))) {
+                    if state.tab == AppTab::Chat {
+                        let text = state.chat_input.clone();
+                        if !text.is_empty() {
+                            state.send_chat_message(&text);
+                        }
+                    }
                 }
-                ui.label("Telegram Bot: ");
-                ui.text_edit_singleline(&mut self.telegram_token);
             });
         });
     }
 }
 
-// -----------------------------------------------------------------------------
-// Android Entry Point
-// -----------------------------------------------------------------------------
-
+// Panic hook to write to file
 #[cfg(target_os = "android")]
 #[no_mangle]
-fn android_main(app: android_activity::AndroidApp) {
+fn android_main(_app: android_activity::AndroidApp) {
+    // Set panic hook to write to external storage
+    std::panic::set_hook(Box::new(|info| {
+        let log_path = "/sdcard/aix_crash.log";
+        let _ = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log_path)
+            .and_then(|mut f| {
+                writeln!(f, "Panic at {:?}: {}", Local::now(), info)
+            });
+        android_logger::init_once(android_logger::Config::default().with_tag("AIX"));
+        log::error!("Panic: {}", info);
+    }));
+    let _ = std::fs::write("/sdcard/aix_startup.txt", "started");
     let options = eframe::NativeOptions::default();
     eframe::run_native(
-        "AIX Agent",
+        "AIX Ultra",
         options,
         Box::new(|cc| Ok(Box::new(AixApp::new(cc)))),
     ).unwrap();
