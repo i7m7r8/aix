@@ -1,4 +1,5 @@
-//! AIX Ultra – Phase 1: Markov AI, file tools, Telegram bot, modern UI.
+//! AIX Ultra – Phase 1: Markov AI, file tools, modern UI (Telegram disabled for stability).
+
 #![cfg_attr(target_os = "android", allow(unused_imports))]
 
 use anyhow::{anyhow, Result};
@@ -6,12 +7,11 @@ use chrono::Local;
 use directories::ProjectDirs;
 use eframe::egui;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use log;
 use std::time::{SystemTime, Duration};
 use walkdir::WalkDir;
 use zip::read::ZipArchive;
@@ -110,7 +110,7 @@ impl MarkovBrain {
             }
         }
         result
-    
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -157,7 +157,7 @@ impl Default for Settings {
             tasks_file: data_dir.join("tasks.json"),
             chat_history_file: data_dir.join("chat_history.json"),
         }
-    
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -229,7 +229,7 @@ impl EditorState {
         } else {
             self.highlighter = None;
         }
-    
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -320,7 +320,7 @@ impl ZipDebugger {
         self.analysis.clear();
         self.warnings.clear();
         self.errors.clear();
-    
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -356,7 +356,7 @@ impl SearchState {
             }
             eprintln!("Found {} files", found.len());
         });
-    
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -410,7 +410,7 @@ impl CalculatorState {
             }
         }
         self.result = format!("{}", result);
-    
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -454,6 +454,7 @@ impl AixState {
         } else {
             Vec::new()
         };
+        let max_id = tasks.iter().map(|t| t.id).max().unwrap_or(0) + 1;
         let chat_history = if let Ok(file) = File::open(&settings.chat_history_file) {
             serde_json::from_reader(file).unwrap_or_default()
         } else {
@@ -473,7 +474,6 @@ impl AixState {
             editor: EditorState::new(),
             notes,
             tasks,
-            let max_id = tasks.iter().map(|t| t.id).max().unwrap_or(0) + 1;
             next_task_id: max_id,
             calculator: CalculatorState::new(),
             search: SearchState::new(),
@@ -566,13 +566,6 @@ impl AixState {
         self.save_tasks();
     }
 
-    fn toggle_task(&mut self, idx: usize) {
-        if let Some(task) = self.tasks.get_mut(idx) {
-            task.completed = !task.completed;
-            self.save_tasks();
-        }
-    }
-
     fn delete_task(&mut self, idx: usize) {
         self.tasks.remove(idx);
         self.save_tasks();
@@ -584,46 +577,8 @@ impl AixState {
 
     fn save_tasks(&self) {
         let _ = fs::write(&self.settings.tasks_file, serde_json::to_string_pretty(&self.tasks).unwrap());
-    
+    }
 }
-
-// -----------------------------------------------------------------------------
-// Telegram bot (simplified integration)
-// -----------------------------------------------------------------------------
-
-// use teloxide::prelude::*;
-// use teloxide::types::Message;
-
-// struct TelegramBot {
-    bot: Bot,
-    agent: Arc<Mutex<AixState>>,
-}
-
-//impl TelegramBot {
-//    fn new(token: String, agent: Arc<Mutex<AixState>>) -> Self {
-//        Self {
-//            bot: Bot::new(token),
-//            agent,
-//        }
-//    }
-//
-//    async fn run(&self) {
-//        let agent = self.agent.clone();
-//        let bot = self.bot.clone();
-//        teloxide::repl(bot, move |bot: Bot, msg: Message| {
-//            let agent = agent.clone();
-//            async move {
-//                if let Some(text) = msg.text() {
-//                    let mut state = agent.lock().unwrap();
-//                    state.send_chat_message(text);
-//                    let response = state.chat_history.last().unwrap().text.clone();
-//                    bot.send_message(msg.chat.id, response).await?;
-//                }
-//                Ok(())
-//            }
-//        }).await;
-//    }
-//}
 
 // -----------------------------------------------------------------------------
 // App wrapper
@@ -631,17 +586,14 @@ impl AixState {
 
 struct AixApp {
     state: Arc<Mutex<AixState>>,
-    telegram_runtime: Option<tokio::runtime::Runtime>,
 }
 
 impl AixApp {
     fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         android_logger::init_once(android_logger::Config::default().with_tag("AIX"));
-        log::info!("AIX Ultra starting...");
         let state = AixState::new();
         Self {
             state: Arc::new(Mutex::new(state)),
-            telegram_runtime: None,
         }
     }
 
@@ -827,11 +779,10 @@ impl AixApp {
                 }
             });
         }
-        state.save_tasks();
         for i in to_delete.into_iter().rev() {
             state.delete_task(i);
         }
-        state.save_tasks();
+        state.save_tasks(); // save after deletions
         ui.separator();
         ui.horizontal(|ui| {
             let _new_task = ui.text_edit_singleline(&mut state.shell_input);
@@ -883,16 +834,6 @@ impl AixApp {
             ui.label("Telegram Bot Token:");
             ui.text_edit_singleline(&mut state.settings.bot_token);
         });
-//        if ui.button("Start Telegram Bot").clicked() && !state.settings.bot_token.is_empty() {
-//            let token = state.settings.bot_token.clone();
-//            let agent = self.state.clone();
-//            let rt = tokio::runtime::Runtime::new().unwrap();
-//            let _ = rt.spawn(async move {
-//                let bot = TelegramBot::new(token, agent);
-//                bot.run().await;
-//            });
-//            state.logs.push("Telegram bot started.".into());
-//        }
         if ui.button("Save Settings").clicked() {
             state.logs.push("Settings saved (placeholder)".into());
         }
@@ -993,7 +934,7 @@ impl eframe::App for AixApp {
                 });
             }
         });
-    
+    }
 }
 
 // Panic hook
