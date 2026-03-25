@@ -45,9 +45,7 @@ jobs:
 
       - name: Add signing config to Cargo.toml
         run: |
-          # Remove any existing signing sections
           sed -i '/^\[package\.metadata\.android\.signing\]/,/^$/d' Cargo.toml
-          # Append the correct release signing table (using 'path')
           cat >> Cargo.toml << SIGNING
 
           [package.metadata.android.signing.release]

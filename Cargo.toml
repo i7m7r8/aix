@@ -28,7 +28,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 # Telegram bot (rustls)
 teloxide = { version = "0.12", default-features = false, features = ["macros", "webhooks", "rustls"] }
 
-# LLM / AI – Markov chain (pure Rust)
+# AI / Markov chain
 rand = "0.8"
 
 # Tools
