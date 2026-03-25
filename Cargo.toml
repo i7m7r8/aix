@@ -58,3 +58,4 @@ keystore_password = "android"
 key_alias = "androiddebugkey"
 key_password = "android"
 
+# v1.0.0
