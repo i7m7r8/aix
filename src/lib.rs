@@ -842,6 +842,9 @@ impl eframe::App for AixApp {
 #[cfg(target_os = "android")]
 #[no_mangle]
 fn android_main(_app: android_activity::AndroidApp) {
+    use std::fs::OpenOptions;
+    use std::io::Write;
+    let _ = OpenOptions::new().create(true).write(true).open("/sdcard/aix_startup.txt").map(|mut f| f.write_all(b"started"));
     android_logger::init_once(android_logger::Config::default().with_tag("AIX").with_max_level(log::LevelFilter::Info));
     log::info!("AIX Ultra started");
     use std::panic;
