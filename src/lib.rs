@@ -947,7 +947,59 @@ impl eframe::App for AixApp {
 #[cfg(target_os = "android")]
 #[no_mangle]
 fn android_main(_app: android_activity::AndroidApp) {
+    // Request storage permissions at startup
+    let app_ref = app.clone();
+    std::thread::spawn(move || {
+        use android_activity::input::InputEvent;
+        use android_activity::looper::Poll;
+        let permissions = [
+            "android.permission.READ_EXTERNAL_STORAGE",
+            "android.permission.WRITE_EXTERNAL_STORAGE",
+            "android.permission.MANAGE_EXTERNAL_STORAGE",
+        ];
+        for perm in permissions {
+            if app_ref.check_permission(perm) != android_activity::Permission::Granted {
+                app_ref.request_permissions(&[perm]);
+                // Wait for result (simple loop)
+                loop {
+                    if app_ref.check_permission(perm) == android_activity::Permission::Granted {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+            }
+        }
+        // Start the foreground service
+        let intent = android_activity::Intent::new_service(&app_ref, "AIXService");
+        app_ref.start_service(&intent);
+    });
     std::fs::write("/sdcard/aix_log.txt", "android_main entered\n").ok();
+    // Request storage permissions at startup
+    let app_ref = app.clone();
+    std::thread::spawn(move || {
+        use android_activity::input::InputEvent;
+        use android_activity::looper::Poll;
+        let permissions = [
+            "android.permission.READ_EXTERNAL_STORAGE",
+            "android.permission.WRITE_EXTERNAL_STORAGE",
+            "android.permission.MANAGE_EXTERNAL_STORAGE",
+        ];
+        for perm in permissions {
+            if app_ref.check_permission(perm) != android_activity::Permission::Granted {
+                app_ref.request_permissions(&[perm]);
+                // Wait for result (simple loop)
+                loop {
+                    if app_ref.check_permission(perm) == android_activity::Permission::Granted {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+            }
+        }
+        // Start the foreground service
+        let intent = android_activity::Intent::new_service(&app_ref, "AIXService");
+        app_ref.start_service(&intent);
+    });
     std::panic::set_hook(Box::new(|info| {
         let log_path = "/sdcard/aix_crash.log";
         let _ = std::fs::OpenOptions::new()

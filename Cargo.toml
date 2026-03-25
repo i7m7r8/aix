@@ -63,6 +63,7 @@ directories = "5.0"
 android-activity = { version = "0.6", features = ["game-activity"] }
 
 [package.metadata.android]
+icon = "res/mipmap/ic_launcher.png"
 package = "com.i7m7r8.aix"
 label = "AIX Ultra"
 assets = "assets"
@@ -82,3 +83,13 @@ name = "android.permission.MANAGE_EXTERNAL_STORAGE"
 name = "android.permission.ACCESS_NOTIFICATION_POLICY"
 [[package.metadata.android.permission]]
 name = "android.permission.SYSTEM_ALERT_WINDOW"
+
+[[package.metadata.android.permission]]
+name = "android.permission.FOREGROUND_SERVICE"
+[[package.metadata.android.permission]]
+name = "android.permission.POST_NOTIFICATIONS"
+
+[[package.metadata.android.service]]
+name = "AIXService"
+type = "foreground"
+permission = "android.permission.FOREGROUND_SERVICE"
