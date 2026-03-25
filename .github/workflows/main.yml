@@ -1,34 +1,15 @@
-name: Build Android
-on: [push]
+# This file is just an alias; the actual build is in build.yml
+name: Main Build
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
 jobs:
-  android:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '17'
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android Platform 30
-        run: sdkmanager "platforms;android-30" "build-tools;30.0.3"
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-linux-android
-
-      - name: Build APK
-        run: |
-          cargo install cargo-apk
-          cargo apk build --release
-          
-      - name: Upload
-        uses: actions/upload-artifact@v4
-        with:
-          name: AI-Debug-APK
-          path: target/release/apk/*.apk
+      - run: echo "Using build.yml workflow"

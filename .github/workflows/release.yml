@@ -35,16 +35,29 @@ jobs:
       - name: Install cargo-apk
         run: cargo install cargo-apk
 
-      - name: Create debug keystore
+      - name: Decode keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
-          mkdir -p ~/.android
-          keytool -genkey -v -keystore ~/.android/debug.keystore -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Debug, OU=Debug, O=Debug, L=Debug, S=Debug, C=US" -storepass android -keypass android
-          keytool -genkey -v -keystore debug.keystore -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Debug, OU=Debug, O=Debug, L=Debug, S=Debug, C=US" -storepass android -keypass android
+          echo "$KEYSTORE_BASE64" | base64 -d > release-key.jks
+          ls -la release-key.jks
+
+      - name: Add signing config to Cargo.toml
+        run: |
+          sed -i '/^\[package\.metadata\.android\.signing\]/,/^$/d' Cargo.toml
+          cat >> Cargo.toml << SIGNING
+
+          [package.metadata.android.signing.release]
+          keystore = "release-key.jks"
+          keystore_password = "${{ secrets.KEYSTORE_PASSWORD }}"
+          key_alias = "${{ secrets.KEY_ALIAS }}"
+          key_password = "${{ secrets.KEYSTORE_PASSWORD }}"
+          SIGNING
 
       - name: Build APK
         run: cargo apk build --release
 
-      - name: Upload APK to Release
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: target/release/apk/aix.apk
