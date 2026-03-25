@@ -48,3 +48,15 @@ path = "debug.keystore"
 keystore_password = "android"
 key_alias = "androiddebugkey"
 key_password = "android"
+
+[package.metadata.android.signing.debug]
+path = "debug.keystore"
+keystore_password = "android"
+key_alias = "androiddebugkey"
+key_password = "android"
+
+[package.metadata.android.signing.release]
+path = "debug.keystore"
+keystore_password = "android"
+key_alias = "androiddebugkey"
+key_password = "android"
