@@ -45,14 +45,17 @@ jobs:
 
       - name: Add signing config to Cargo.toml
         run: |
-          cat >> Cargo.toml << EOF
+          # Remove any existing signing sections
+          sed -i '/^\[package\.metadata\.android\.signing\]/,/^$/d' Cargo.toml
+          # Append the correct signing table
+          cat >> Cargo.toml << SIGNING
 
           [package.metadata.android.signing]
-          keystore = "release-key.jks"
+          keystore_path = "release-key.jks"
           keystore_password = "${{ secrets.KEYSTORE_PASSWORD }}"
           key_alias = "${{ secrets.KEY_ALIAS }}"
           key_password = "${{ secrets.KEYSTORE_PASSWORD }}"
-          EOF
+          SIGNING
 
       - name: Build APK
         run: cargo apk build --release
