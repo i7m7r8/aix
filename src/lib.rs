@@ -11,6 +11,7 @@ use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use log;
 use std::time::{SystemTime, Duration};
 use walkdir::WalkDir;
 use zip::read::ZipArchive;
@@ -472,7 +473,8 @@ impl AixState {
             editor: EditorState::new(),
             notes,
             tasks,
-            next_task_id: tasks.iter().map(|t| t.id).max().unwrap_or(0) + 1,
+            let max_id = tasks.iter().map(|t| t.id).max().unwrap_or(0) + 1;
+            next_task_id: max_id,
             calculator: CalculatorState::new(),
             search: SearchState::new(),
             shell_input: String::new(),
@@ -589,39 +591,39 @@ impl AixState {
 // Telegram bot (simplified integration)
 // -----------------------------------------------------------------------------
 
-use teloxide::prelude::*;
-use teloxide::types::Message;
+// use teloxide::prelude::*;
+// use teloxide::types::Message;
 
-struct TelegramBot {
+// struct TelegramBot {
     bot: Bot,
     agent: Arc<Mutex<AixState>>,
 }
 
-impl TelegramBot {
-    fn new(token: String, agent: Arc<Mutex<AixState>>) -> Self {
-        Self {
-            bot: Bot::new(token),
-            agent,
-        }
-    }
-
-    async fn run(&self) {
-        let agent = self.agent.clone();
-        let bot = self.bot.clone();
-        teloxide::repl(bot, move |bot: Bot, msg: Message| {
-            let agent = agent.clone();
-            async move {
-                if let Some(text) = msg.text() {
-                    let mut state = agent.lock().unwrap();
-                    state.send_chat_message(text);
-                    let response = state.chat_history.last().unwrap().text.clone();
-                    bot.send_message(msg.chat.id, response).await?;
-                }
-                Ok(())
-            }
-        }).await;
-    }
-}
+//impl TelegramBot {
+//    fn new(token: String, agent: Arc<Mutex<AixState>>) -> Self {
+//        Self {
+//            bot: Bot::new(token),
+//            agent,
+//        }
+//    }
+//
+//    async fn run(&self) {
+//        let agent = self.agent.clone();
+//        let bot = self.bot.clone();
+//        teloxide::repl(bot, move |bot: Bot, msg: Message| {
+//            let agent = agent.clone();
+//            async move {
+//                if let Some(text) = msg.text() {
+//                    let mut state = agent.lock().unwrap();
+//                    state.send_chat_message(text);
+//                    let response = state.chat_history.last().unwrap().text.clone();
+//                    bot.send_message(msg.chat.id, response).await?;
+//                }
+//                Ok(())
+//            }
+//        }).await;
+//    }
+//}
 
 // -----------------------------------------------------------------------------
 // App wrapper
@@ -819,16 +821,17 @@ impl AixApp {
                 let mut completed = task.completed;
                 if ui.checkbox(&mut completed, &task.text).changed() {
                     task.completed = completed;
-                    state.save_tasks();
                 }
                 if ui.button("❌").clicked() {
                     to_delete.push(i);
                 }
             });
         }
+        state.save_tasks();
         for i in to_delete.into_iter().rev() {
             state.delete_task(i);
         }
+        state.save_tasks();
         ui.separator();
         ui.horizontal(|ui| {
             let _new_task = ui.text_edit_singleline(&mut state.shell_input);
@@ -880,16 +883,16 @@ impl AixApp {
             ui.label("Telegram Bot Token:");
             ui.text_edit_singleline(&mut state.settings.bot_token);
         });
-        if ui.button("Start Telegram Bot").clicked() && !state.settings.bot_token.is_empty() {
-            let token = state.settings.bot_token.clone();
-            let agent = self.state.clone();
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            let _ = rt.spawn(async move {
-                let bot = TelegramBot::new(token, agent);
-                bot.run().await;
-            });
-            state.logs.push("Telegram bot started.".into());
-        }
+//        if ui.button("Start Telegram Bot").clicked() && !state.settings.bot_token.is_empty() {
+//            let token = state.settings.bot_token.clone();
+//            let agent = self.state.clone();
+//            let rt = tokio::runtime::Runtime::new().unwrap();
+//            let _ = rt.spawn(async move {
+//                let bot = TelegramBot::new(token, agent);
+//                bot.run().await;
+//            });
+//            state.logs.push("Telegram bot started.".into());
+//        }
         if ui.button("Save Settings").clicked() {
             state.logs.push("Settings saved (placeholder)".into());
         }
