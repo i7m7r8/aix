@@ -1,6 +1,4 @@
-//! AIX Ultra – Full‑featured Android app with AI chat (Markov), file browser,
-//! editor, zip debugger, notes, tasks, calculator, system info, Telegram bot.
-
+//! AIX Ultra – Phase 1: Markov AI, file tools, Telegram bot, modern UI.
 #![cfg_attr(target_os = "android", allow(unused_imports))]
 
 use anyhow::{anyhow, Result};
@@ -43,7 +41,7 @@ enum AppTab {
 }
 
 // -----------------------------------------------------------------------------
-// Chat / Markov model (pure Rust)
+// Markov chain AI
 // -----------------------------------------------------------------------------
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -53,8 +51,6 @@ struct ChatMessage {
     time: String,
 }
 
-/// A simple Markov chain that learns from user messages and produces replies.
-/// Completely self‑contained, no external files.
 struct MarkovBrain {
     chain: HashMap<String, Vec<String>>,
     order: usize,
@@ -117,7 +113,7 @@ impl MarkovBrain {
 }
 
 // -----------------------------------------------------------------------------
-// Notes
+// Notes & Tasks
 // -----------------------------------------------------------------------------
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -126,10 +122,6 @@ struct Note {
     content: String,
     updated: SystemTime,
 }
-
-// -----------------------------------------------------------------------------
-// Tasks
-// -----------------------------------------------------------------------------
 
 #[derive(Serialize, Deserialize, Clone)]
 struct Task {
@@ -146,11 +138,10 @@ struct Task {
 #[derive(Serialize, Deserialize, Clone)]
 struct Settings {
     dark_mode: bool,
-    chat_history_file: PathBuf,
+    bot_token: String,
     notes_file: PathBuf,
     tasks_file: PathBuf,
-    api_key: String,
-    bot_token: String,
+    chat_history_file: PathBuf,
 }
 
 impl Default for Settings {
@@ -160,17 +151,16 @@ impl Default for Settings {
         fs::create_dir_all(&data_dir).ok();
         Self {
             dark_mode: true,
-            chat_history_file: data_dir.join("chat_history.json"),
+            bot_token: String::new(),
             notes_file: data_dir.join("notes.json"),
             tasks_file: data_dir.join("tasks.json"),
-            api_key: String::new(),
-            bot_token: String::new(),
+            chat_history_file: data_dir.join("chat_history.json"),
         }
     }
 }
 
 // -----------------------------------------------------------------------------
-// File browser entry
+// File browser
 // -----------------------------------------------------------------------------
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -183,7 +173,7 @@ struct FileEntry {
 }
 
 // -----------------------------------------------------------------------------
-// Editor state
+// Editor
 // -----------------------------------------------------------------------------
 
 struct EditorState {
@@ -391,7 +381,34 @@ impl CalculatorState {
             self.result = "".into();
             return;
         }
-        self.result = format!("Not implemented: {}", expr);
+        // Simple arithmetic evaluator (only supports + - * / and whitespace)
+        let tokens: Vec<&str> = expr.split_whitespace().collect();
+        if tokens.is_empty() {
+            self.result = "Invalid expression".into();
+            return;
+        }
+        let mut result = 0.0;
+        let mut op = '+';
+        for tok in tokens {
+            if let Ok(num) = tok.parse::<f64>() {
+                match op {
+                    '+' => result += num,
+                    '-' => result -= num,
+                    '*' => result *= num,
+                    '/' => result /= num,
+                    _ => {}
+                }
+            } else {
+                op = match tok {
+                    "+" => '+',
+                    "-" => '-',
+                    "*" => '*',
+                    "/" => '/',
+                    _ => '?',
+                };
+            }
+        }
+        self.result = format!("{}", result);
     }
 }
 
@@ -425,9 +442,26 @@ impl AixState {
         let data_dir = proj.data_dir();
         fs::create_dir_all(&data_dir).ok();
 
+        // Load persisted data
+        let notes = if let Ok(file) = File::open(&settings.notes_file) {
+            serde_json::from_reader(file).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        let tasks = if let Ok(file) = File::open(&settings.tasks_file) {
+            serde_json::from_reader(file).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        let chat_history = if let Ok(file) = File::open(&settings.chat_history_file) {
+            serde_json::from_reader(file).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+
         Self {
             tab: AppTab::Welcome,
-            chat_history: Vec::new(),
+            chat_history,
             chat_input: String::new(),
             markov: MarkovBrain::new(2),
             logs: vec!["[BOOT] AIX Ultra started.".into()],
@@ -436,9 +470,9 @@ impl AixState {
             file_entries: Vec::new(),
             zip_debugger: ZipDebugger::new(),
             editor: EditorState::new(),
-            notes: Vec::new(),
-            tasks: Vec::new(),
-            next_task_id: 1,
+            notes,
+            tasks,
+            next_task_id: tasks.iter().map(|t| t.id).max().unwrap_or(0) + 1,
             calculator: CalculatorState::new(),
             search: SearchState::new(),
             shell_input: String::new(),
@@ -472,16 +506,16 @@ impl AixState {
         });
         self.chat_input.clear();
 
-        // Learn from user input
         self.markov.learn(text);
-
-        // Generate AI response
         let response = self.markov.generate(None);
         self.chat_history.push(ChatMessage {
             sender: "AI".into(),
             text: response,
             time: Local::now().format("%H:%M").to_string(),
         });
+
+        // Persist chat history
+        let _ = fs::write(&self.settings.chat_history_file, serde_json::to_string_pretty(&self.chat_history).unwrap());
     }
 
     fn shell_command(&self, cmd: &str) -> String {
@@ -511,10 +545,12 @@ impl AixState {
             content,
             updated: SystemTime::now(),
         });
+        self.save_notes();
     }
 
     fn delete_note(&mut self, idx: usize) {
         self.notes.remove(idx);
+        self.save_notes();
     }
 
     fn add_task(&mut self, text: String) {
@@ -525,10 +561,27 @@ impl AixState {
             created: SystemTime::now(),
         });
         self.next_task_id += 1;
+        self.save_tasks();
+    }
+
+    fn toggle_task(&mut self, idx: usize) {
+        if let Some(task) = self.tasks.get_mut(idx) {
+            task.completed = !task.completed;
+            self.save_tasks();
+        }
     }
 
     fn delete_task(&mut self, idx: usize) {
         self.tasks.remove(idx);
+        self.save_tasks();
+    }
+
+    fn save_notes(&self) {
+        let _ = fs::write(&self.settings.notes_file, serde_json::to_string_pretty(&self.notes).unwrap());
+    }
+
+    fn save_tasks(&self) {
+        let _ = fs::write(&self.settings.tasks_file, serde_json::to_string_pretty(&self.tasks).unwrap());
     }
 }
 
@@ -559,7 +612,6 @@ impl TelegramBot {
             let agent = agent.clone();
             async move {
                 if let Some(text) = msg.text() {
-                    // Delegate to the AI chat
                     let mut state = agent.lock().unwrap();
                     state.send_chat_message(text);
                     let response = state.chat_history.last().unwrap().text.clone();
@@ -572,7 +624,7 @@ impl TelegramBot {
 }
 
 // -----------------------------------------------------------------------------
-// The app wrapper
+// App wrapper
 // -----------------------------------------------------------------------------
 
 struct AixApp {
@@ -592,7 +644,7 @@ impl AixApp {
     }
 
     // -------------------------------------------------------------------------
-    // Render each tab
+    // Render functions
     // -------------------------------------------------------------------------
 
     fn render_welcome(&self, ui: &mut egui::Ui, _state: &mut AixState) {
@@ -731,10 +783,19 @@ impl AixApp {
     fn render_notes(&self, ui: &mut egui::Ui, state: &mut AixState) {
         egui::SidePanel::left("notes_list").show_inside(ui, |ui| {
             ui.heading("Notes");
+            let mut to_delete = Vec::new();
             for (i, note) in state.notes.iter().enumerate() {
-                if ui.button(&note.title).clicked() {
-                    // For simplicity, just show a message; a real implementation would edit.
-                }
+                ui.horizontal(|ui| {
+                    if ui.button(&note.title).clicked() {
+                        // For simplicity, just show a message; a real implementation would edit.
+                    }
+                    if ui.button("❌").clicked() {
+                        to_delete.push(i);
+                    }
+                });
+            }
+            for i in to_delete.into_iter().rev() {
+                state.delete_note(i);
             }
             if ui.button("+ New Note").clicked() {
                 state.add_note("New Note".into(), "Write your note here...".into());
@@ -758,6 +819,7 @@ impl AixApp {
                 let mut completed = task.completed;
                 if ui.checkbox(&mut completed, &task.text).changed() {
                     task.completed = completed;
+                    state.save_tasks();
                 }
                 if ui.button("❌").clicked() {
                     to_delete.push(i);
@@ -821,16 +883,14 @@ impl AixApp {
         if ui.button("Start Telegram Bot").clicked() && !state.settings.bot_token.is_empty() {
             let token = state.settings.bot_token.clone();
             let agent = self.state.clone();
-            // Start the bot in a separate runtime
             let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.spawn(async move {
+            let _ = rt.spawn(async move {
                 let bot = TelegramBot::new(token, agent);
                 bot.run().await;
             });
             state.logs.push("Telegram bot started.".into());
         }
         if ui.button("Save Settings").clicked() {
-            // Persist settings (placeholder)
             state.logs.push("Settings saved (placeholder)".into());
         }
     }
@@ -844,13 +904,12 @@ impl eframe::App for AixApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let mut state = self.state.lock().unwrap();
 
-        // Lumo/Capachino theme – modern dark with subtle colors
+        // Material 3 theme
         let mut visuals = if state.settings.dark_mode {
             egui::Visuals::dark()
         } else {
             egui::Visuals::light()
         };
-        // Dark theme tweaks
         visuals.widgets.noninteractive.bg_fill = egui::Color32::from_rgb(30, 30, 35);
         visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(40, 40, 45);
         visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(60, 60, 70);
@@ -870,7 +929,7 @@ impl eframe::App for AixApp {
         visuals.window_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(80, 80, 90));
         ctx.set_visuals(visuals);
 
-        // Top panel: header
+        // Top panel
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.style_mut().spacing.item_spacing = egui::vec2(8.0, 8.0);
             ui.horizontal(|ui| {
@@ -897,7 +956,7 @@ impl eframe::App for AixApp {
             });
         });
 
-        // Central panel: content
+        // Central panel
         egui::CentralPanel::default().show(ctx, |ui| {
             match state.tab {
                 AppTab::Welcome => self.render_welcome(ui, &mut state),
@@ -914,49 +973,37 @@ impl eframe::App for AixApp {
             }
         });
 
-        // Bottom panel: input field (for chat)
+        // Bottom panel (only for chat input)
         egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                let hint = match state.tab {
-                    AppTab::Chat => "Type a message...",
-                    _ => "",
-                };
-                let input_ref = if state.tab == AppTab::Chat {
-                    &mut state.chat_input
-                } else {
-                    &mut String::new()
-                };
-                let response = ui.add_sized(
-                    [ui.available_width() - 70.0, 35.0],
-                    egui::TextEdit::singleline(input_ref).hint_text(hint),
-                );
-                if ui.button("SEND").clicked() || (response.lost_focus() && ctx.input(|i| i.key_pressed(egui::Key::Enter))) {
-                    if state.tab == AppTab::Chat {
+            if state.tab == AppTab::Chat {
+                ui.horizontal(|ui| {
+                    let response = ui.add_sized(
+                        [ui.available_width() - 70.0, 35.0],
+                        egui::TextEdit::singleline(&mut state.chat_input).hint_text("Type a message..."),
+                    );
+                    if ui.button("SEND").clicked() || (response.lost_focus() && ctx.input(|i| i.key_pressed(egui::Key::Enter))) {
                         let text = state.chat_input.clone();
                         if !text.is_empty() {
                             state.send_chat_message(&text);
                         }
                     }
-                }
-            });
+                });
+            }
         });
     }
 }
 
-// Panic hook to write to file
+// Panic hook
 #[cfg(target_os = "android")]
 #[no_mangle]
 fn android_main(_app: android_activity::AndroidApp) {
-    // Set panic hook to write to external storage
     std::panic::set_hook(Box::new(|info| {
         let log_path = "/sdcard/aix_crash.log";
         let _ = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(log_path)
-            .and_then(|mut f| {
-                writeln!(f, "Panic at {:?}: {}", Local::now(), info)
-            });
+            .and_then(|mut f| writeln!(f, "Panic at {:?}: {}", Local::now(), info));
         android_logger::init_once(android_logger::Config::default().with_tag("AIX"));
         log::error!("Panic: {}", info);
     }));
