@@ -1,5 +1,5 @@
-//! AIX Ultra – Multi‑tool Android app with Lumo‑inspired UI.
-
+//! AIX Ultra – Modern Android toolbox with local AI chat (Markov chain).
+//! Includes file browser, editor, zip debugger, notes, tasks, calculator, etc.
 #![cfg_attr(target_os = "android", allow(unused_imports))]
 
 use anyhow::{anyhow, Result};
@@ -12,13 +12,11 @@ use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::fs::OpenOptions;
-use log::LevelFilter;
 use std::time::{SystemTime, Duration};
 use walkdir::WalkDir;
 use zip::read::ZipArchive;
 
-// Syntect imports for syntax highlighting
+// Syntect for syntax highlighting
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{ThemeSet, Style};
 use syntect::parsing::SyntaxSet;
@@ -30,23 +28,21 @@ use syntect::util::LinesWithEndings;
 
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
 enum AppTab {
-    Diagnostics,
     Welcome,
     Chat,
-    Shell,
-    Hardware,
     FileBrowser,
     Editor,
     ZipDebugger,
     Notes,
     Tasks,
     Calculator,
+    Hardware,
     Search,
     Settings,
 }
 
 // -----------------------------------------------------------------------------
-// Chat (placeholder)
+// Chat / Markov model
 // -----------------------------------------------------------------------------
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -54,6 +50,69 @@ struct ChatMessage {
     sender: String,
     text: String,
     time: String,
+}
+
+/// A simple Markov chain that learns from user messages and produces replies.
+/// It's completely self‑contained, no external files.
+struct MarkovBrain {
+    chain: HashMap<String, Vec<String>>,
+    order: usize,
+}
+
+impl MarkovBrain {
+    fn new(order: usize) -> Self {
+        Self {
+            chain: HashMap::new(),
+            order,
+        }
+    }
+
+    fn learn(&mut self, text: &str) {
+        let words: Vec<&str> = text.split_whitespace().collect();
+        if words.len() <= self.order {
+            return;
+        }
+        for i in 0..words.len() - self.order {
+            let key = words[i..i + self.order].join(" ");
+            let next = words[i + self.order].to_string();
+            self.chain.entry(key).or_default().push(next);
+        }
+    }
+
+    fn generate(&self, seed: Option<&str>) -> String {
+        if self.chain.is_empty() {
+            return "I'm still learning. Type something to teach me!".into();
+        }
+
+        let mut rng = rand::thread_rng();
+        let mut current = if let Some(s) = seed {
+            s.to_string()
+        } else {
+            self.chain.keys().next().unwrap().clone()
+        };
+
+        let mut result = current.clone();
+        for _ in 0..50 {
+            if let Some(next_words) = self.chain.get(&current) {
+                if next_words.is_empty() {
+                    break;
+                }
+                let idx = rand::Rng::gen_range(&mut rng, 0..next_words.len());
+                let next = &next_words[idx];
+                result.push(' ');
+                result.push_str(next);
+                // shift current window
+                let mut parts: Vec<&str> = result.split_whitespace().collect();
+                if parts.len() > self.order {
+                    parts = parts[parts.len() - self.order..].to_vec();
+                }
+                current = parts.join(" ");
+            } else {
+                break;
+            }
+        }
+        result
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -322,12 +381,41 @@ impl CalculatorState {
     }
 
     fn evaluate(&mut self) {
+        // Very simple arithmetic evaluator – no external crate.
         let expr = self.expression.trim();
         if expr.is_empty() {
             self.result = "".into();
             return;
         }
-        self.result = format!("Not implemented: {}", expr);
+        // Use a simple recursive descent for demo
+        let tokens: Vec<&str> = expr.split_whitespace().collect();
+        if tokens.is_empty() {
+            self.result = "Invalid expression".into();
+            return;
+        }
+        // For now, just evaluate single operations
+        let mut result = 0.0;
+        let mut op = '+';
+        for tok in tokens {
+            if let Ok(num) = tok.parse::<f64>() {
+                match op {
+                    '+' => result += num,
+                    '-' => result -= num,
+                    '*' => result *= num,
+                    '/' => result /= num,
+                    _ => {}
+                }
+            } else {
+                op = match tok {
+                    "+" => '+',
+                    "-" => '-',
+                    "*" => '*',
+                    "/" => '/',
+                    _ => '?',
+                };
+            }
+        }
+        self.result = format!("{}", result);
     }
 }
 
@@ -339,6 +427,7 @@ struct AixState {
     tab: AppTab,
     chat_history: Vec<ChatMessage>,
     chat_input: String,
+    markov: MarkovBrain,
     logs: Vec<String>,
     settings: Settings,
     file_browser_current_dir: PathBuf,
@@ -362,12 +451,9 @@ impl AixState {
 
         Self {
             tab: AppTab::Welcome,
-            chat_history: vec![ChatMessage {
-                sender: "SYSTEM".into(),
-                text: "AIX Ultra – Multi‑tool app. AI model coming soon.".into(),
-                time: Local::now().format("%H:%M").to_string(),
-            }],
+            chat_history: Vec::new(),
             chat_input: String::new(),
+            markov: MarkovBrain::new(2),
             logs: vec!["[BOOT] AIX Ultra started.".into()],
             settings,
             file_browser_current_dir: PathBuf::from("/sdcard"),
@@ -403,17 +489,22 @@ impl AixState {
     }
 
     fn send_chat_message(&mut self, text: &str) {
-        let msg = ChatMessage {
+        // Add user message
+        self.chat_history.push(ChatMessage {
             sender: "USER".into(),
             text: text.to_string(),
             time: Local::now().format("%H:%M").to_string(),
-        };
-        self.chat_history.push(msg);
+        });
         self.chat_input.clear();
 
+        // Learn from user input
+        self.markov.learn(text);
+
+        // Generate AI response
+        let response = self.markov.generate(None);
         self.chat_history.push(ChatMessage {
             sender: "AI".into(),
-            text: "AI model not yet integrated. This is a placeholder. Full AI features coming soon!".into(),
+            text: response,
             time: Local::now().format("%H:%M").to_string(),
         });
     }
@@ -461,12 +552,6 @@ impl AixState {
         self.next_task_id += 1;
     }
 
-    fn toggle_task(&mut self, idx: usize) {
-        if let Some(task) = self.tasks.get_mut(idx) {
-            task.completed = !task.completed;
-        }
-    }
-
     fn delete_task(&mut self, idx: usize) {
         self.tasks.remove(idx);
     }
@@ -483,6 +568,9 @@ struct AixApp {
 impl AixApp {
     fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         android_logger::init_once(android_logger::Config::default().with_tag("AIX"));
+        log::info!("AIX Ultra starting...");
+        // Create startup marker
+        let _ = std::fs::write("/sdcard/aix_startup.txt", "started");
         let state = AixState::new();
         Self { state: Arc::new(Mutex::new(state)) }
     }
@@ -492,30 +580,14 @@ impl AixApp {
     // -------------------------------------------------------------------------
 
     fn render_welcome(&self, ui: &mut egui::Ui, _state: &mut AixState) {
-    fn render_diagnostics(&self, ui: &mut egui::Ui, state: &mut AixState) {
-        ui.heading("Diagnostics");
-        ui.label("Startup marker file: /sdcard/aix_startup.txt");
-        if let Ok(content) = std::fs::read_to_string("/sdcard/aix_startup.txt") {
-            ui.label(format!("Content: {}", content));
-        } else {
-            ui.label("Marker file not found – app may have crashed before startup.");
-        }
-        ui.separator();
-        ui.label("Crash log: /sdcard/aix_crash.log");
-        if let Ok(log) = std::fs::read_to_string("/sdcard/aix_crash.log") {
-            egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
-                ui.monospace(log);
-            });
-        } else {
-            ui.label("No crash log found.");
-        }
-    }
         let welcome_text = include_str!("../assets/welcome.txt");
         egui::ScrollArea::vertical().show(ui, |ui| {
             ui.add_space(20.0);
             ui.heading("📱 Welcome to AIX Ultra");
             ui.add_space(10.0);
             ui.label(welcome_text);
+            ui.add_space(20.0);
+            ui.label("AI Chat uses a Markov chain – talk to it and it will learn!");
         });
     }
 
@@ -528,19 +600,6 @@ impl AixApp {
                 });
             }
         });
-    }
-
-    fn render_shell(&self, ui: &mut egui::Ui, state: &mut AixState) {
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            for log in &state.logs {
-                ui.monospace(log);
-            }
-        });
-    }
-
-    fn render_hardware(&self, ui: &mut egui::Ui, state: &mut AixState) {
-        ui.label(state.hardware_info());
-        if ui.button("Refresh").clicked() {}
     }
 
     fn render_file_browser(&self, ui: &mut egui::Ui, state: &mut AixState) {
@@ -656,8 +715,10 @@ impl AixApp {
     fn render_notes(&self, ui: &mut egui::Ui, state: &mut AixState) {
         egui::SidePanel::left("notes_list").show_inside(ui, |ui| {
             ui.heading("Notes");
-            for (_i, note) in state.notes.iter().enumerate() {
-                if ui.button(&note.title).clicked() {}
+            for (i, note) in state.notes.iter().enumerate() {
+                if ui.button(&note.title).clicked() {
+                    // For simplicity, just show a message; a real implementation would edit.
+                }
             }
             if ui.button("+ New Note").clicked() {
                 state.add_note("New Note".into(), "Write your note here...".into());
@@ -713,6 +774,11 @@ impl AixApp {
         ui.label(format!("Result: {}", state.calculator.result));
     }
 
+    fn render_hardware(&self, ui: &mut egui::Ui, state: &mut AixState) {
+        ui.label(state.hardware_info());
+        if ui.button("Refresh").clicked() {}
+    }
+
     fn render_search(&self, ui: &mut egui::Ui, state: &mut AixState) {
         ui.heading("File Search");
         ui.horizontal(|ui| {
@@ -746,12 +812,13 @@ impl eframe::App for AixApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let mut state = self.state.lock().unwrap();
 
-        // Apply Lumo‑inspired modern theme
+        // Lumo/Capachino theme – modern dark with subtle colors
         let mut visuals = if state.settings.dark_mode {
             egui::Visuals::dark()
         } else {
             egui::Visuals::light()
         };
+        // Dark theme tweaks
         visuals.widgets.noninteractive.bg_fill = egui::Color32::from_rgb(30, 30, 35);
         visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(40, 40, 45);
         visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(60, 60, 70);
@@ -785,16 +852,14 @@ impl eframe::App for AixApp {
             ui.separator();
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut state.tab, AppTab::Welcome, "👋 WELCOME");
-                ui.selectable_value(&mut state.tab, AppTab::Diagnostics, "🔧 DIAG");
                 ui.selectable_value(&mut state.tab, AppTab::Chat, "💬 CHAT");
-                ui.selectable_value(&mut state.tab, AppTab::Shell, "🐚 SHELL");
-                ui.selectable_value(&mut state.tab, AppTab::Hardware, "📊 SYS");
                 ui.selectable_value(&mut state.tab, AppTab::FileBrowser, "📁 FILES");
                 ui.selectable_value(&mut state.tab, AppTab::Editor, "✏️ EDITOR");
                 ui.selectable_value(&mut state.tab, AppTab::ZipDebugger, "📦 ZIP");
                 ui.selectable_value(&mut state.tab, AppTab::Notes, "📝 NOTES");
                 ui.selectable_value(&mut state.tab, AppTab::Tasks, "✅ TASKS");
                 ui.selectable_value(&mut state.tab, AppTab::Calculator, "🔢 CALC");
+                ui.selectable_value(&mut state.tab, AppTab::Hardware, "📊 SYS");
                 ui.selectable_value(&mut state.tab, AppTab::Search, "🔍 SEARCH");
                 ui.selectable_value(&mut state.tab, AppTab::Settings, "⚙️ SETTINGS");
             });
@@ -805,55 +870,40 @@ impl eframe::App for AixApp {
             match state.tab {
                 AppTab::Welcome => self.render_welcome(ui, &mut state),
                 AppTab::Chat => self.render_chat(ui, &mut state),
-                AppTab::Shell => self.render_shell(ui, &mut state),
-                AppTab::Hardware => self.render_hardware(ui, &mut state),
                 AppTab::FileBrowser => self.render_file_browser(ui, &mut state),
                 AppTab::Editor => self.render_editor(ui, &mut state),
                 AppTab::ZipDebugger => self.render_zip_debugger(ui, &mut state),
                 AppTab::Notes => self.render_notes(ui, &mut state),
                 AppTab::Tasks => self.render_tasks(ui, &mut state),
                 AppTab::Calculator => self.render_calculator(ui, &mut state),
+                AppTab::Hardware => self.render_hardware(ui, &mut state),
                 AppTab::Search => self.render_search(ui, &mut state),
-                AppTab::Diagnostics => self.render_diagnostics(ui, &mut state),
                 AppTab::Settings => self.render_settings(ui, &mut state),
             }
         });
 
-        // Bottom panel: input field (for shell and chat)
+        // Bottom panel: input field (for chat and shell, but only chat is active now)
         egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 let hint = match state.tab {
                     AppTab::Chat => "Type a message...",
-                    AppTab::Shell => "Type a shell command...",
                     _ => "",
                 };
-                let input_ref = match state.tab {
-                    AppTab::Chat => &mut state.chat_input,
-                    AppTab::Shell => &mut state.shell_input,
-                    _ => &mut String::new(),
+                let input_ref = if state.tab == AppTab::Chat {
+                    &mut state.chat_input
+                } else {
+                    &mut String::new()
                 };
                 let response = ui.add_sized(
                     [ui.available_width() - 70.0, 35.0],
                     egui::TextEdit::singleline(input_ref).hint_text(hint),
                 );
                 if ui.button("SEND").clicked() || (response.lost_focus() && ctx.input(|i| i.key_pressed(egui::Key::Enter))) {
-                    match state.tab {
-                        AppTab::Chat => {
-                            let text = state.chat_input.clone();
-                            if !text.is_empty() {
-                                state.send_chat_message(&text);
-                            }
+                    if state.tab == AppTab::Chat {
+                        let text = state.chat_input.clone();
+                        if !text.is_empty() {
+                            state.send_chat_message(&text);
                         }
-                        AppTab::Shell => {
-                            let cmd = state.shell_input.clone();
-                            if !cmd.is_empty() {
-                                let res = state.shell_command(&cmd);
-                                state.logs.push(format!("$ {}", cmd));
-                                state.logs.push(res);
-                                state.shell_input.clear();
-                            }
-                        }
-                        _ => {}
                     }
                 }
             });
@@ -861,25 +911,26 @@ impl eframe::App for AixApp {
     }
 }
 
+// Panic hook to write to file
 #[cfg(target_os = "android")]
 #[no_mangle]
-fn android_main(_app: android_activity::AndroidApp) {
-    
-    
-    let _ = OpenOptions::new().create(true).write(true).open("/sdcard/aix_startup.txt").map(|mut f| f.write_all(b"started"));
-    android_logger::init_once(android_logger::Config::default().with_tag("AIX").with_max_level(log::LevelFilter::Info));
-    log::info!("AIX Ultra started");
-    use std::panic;
-    
-    
-    let original_hook = panic::take_hook();
-    panic::set_hook(Box::new(move |panic_info| {
+fn android_main(app: android_activity::AndroidApp) {
+    // Set panic hook to write to external storage
+    std::panic::set_hook(Box::new(|info| {
         let log_path = "/sdcard/aix_crash.log";
-        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log_path) {
-            let _ = writeln!(file, "{:?}", panic_info);
-        }
-        original_hook(panic_info);
+        let _ = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log_path)
+            .and_then(|mut f| {
+                writeln!(f, "Panic at {:?}: {}", Local::now(), info)
+            });
+        // Also print to logcat
+        android_logger::init_once(android_logger::Config::default().with_tag("AIX"));
+        log::error!("Panic: {}", info);
     }));
+    // Startup marker
+    let _ = std::fs::write("/sdcard/aix_startup.txt", "started");
     let options = eframe::NativeOptions::default();
     eframe::run_native(
         "AIX Ultra",

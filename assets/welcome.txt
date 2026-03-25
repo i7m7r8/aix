@@ -8,13 +8,10 @@
 ║  • Zip Debugger with static analysis                     ║
 ║  • Notes & Tasks (to‑do list)                            ║
 ║  • Calculator & System Info                              ║
-║  • Shell (Termux commands)                               ║
-║  • Search files                                          ║
-║                                                          ║
-║  AI features coming soon!                                ║
+║  • AI Chat (Markov chain – learns from your messages!)   ║
 ║                                                          ║
 ║  To navigate, use the top‑bar tabs.                      ║
-║  For shell commands, switch to the Shell tab.            ║
+║  Talk to the AI in the Chat tab – it will learn!         ║
 ║                                                          ║
 ║  Enjoy!                                                  ║
 ╚══════════════════════════════════════════════════════════╝
