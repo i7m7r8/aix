@@ -13,7 +13,6 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::fs::OpenOptions;
-use std::io::Write;
 use log::LevelFilter;
 use std::time::{SystemTime, Duration};
 use walkdir::WalkDir;
@@ -31,6 +30,7 @@ use syntect::util::LinesWithEndings;
 
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
 enum AppTab {
+    Diagnostics,
     Welcome,
     Chat,
     Shell,
@@ -492,6 +492,24 @@ impl AixApp {
     // -------------------------------------------------------------------------
 
     fn render_welcome(&self, ui: &mut egui::Ui, _state: &mut AixState) {
+    fn render_diagnostics(&self, ui: &mut egui::Ui, state: &mut AixState) {
+        ui.heading("Diagnostics");
+        ui.label("Startup marker file: /sdcard/aix_startup.txt");
+        if let Ok(content) = std::fs::read_to_string("/sdcard/aix_startup.txt") {
+            ui.label(format!("Content: {}", content));
+        } else {
+            ui.label("Marker file not found – app may have crashed before startup.");
+        }
+        ui.separator();
+        ui.label("Crash log: /sdcard/aix_crash.log");
+        if let Ok(log) = std::fs::read_to_string("/sdcard/aix_crash.log") {
+            egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
+                ui.monospace(log);
+            });
+        } else {
+            ui.label("No crash log found.");
+        }
+    }
         let welcome_text = include_str!("../assets/welcome.txt");
         egui::ScrollArea::vertical().show(ui, |ui| {
             ui.add_space(20.0);
@@ -767,6 +785,7 @@ impl eframe::App for AixApp {
             ui.separator();
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut state.tab, AppTab::Welcome, "👋 WELCOME");
+                ui.selectable_value(&mut state.tab, AppTab::Diagnostics, "🔧 DIAG");
                 ui.selectable_value(&mut state.tab, AppTab::Chat, "💬 CHAT");
                 ui.selectable_value(&mut state.tab, AppTab::Shell, "🐚 SHELL");
                 ui.selectable_value(&mut state.tab, AppTab::Hardware, "📊 SYS");
@@ -795,6 +814,7 @@ impl eframe::App for AixApp {
                 AppTab::Tasks => self.render_tasks(ui, &mut state),
                 AppTab::Calculator => self.render_calculator(ui, &mut state),
                 AppTab::Search => self.render_search(ui, &mut state),
+                AppTab::Diagnostics => self.render_diagnostics(ui, &mut state),
                 AppTab::Settings => self.render_settings(ui, &mut state),
             }
         });
