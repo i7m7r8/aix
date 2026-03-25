@@ -45,9 +45,7 @@ jobs:
 
       - name: Add signing config to Cargo.toml
         run: |
-          # Remove any existing signing sections
           sed -i '/^\[package\.metadata\.android\.signing\]/,/^$/d' Cargo.toml
-          # Append the correct release signing table
           cat >> Cargo.toml << SIGNING
 
           [package.metadata.android.signing.release]
@@ -65,3 +63,16 @@ jobs:
         with:
           name: aix-ultra-apk
           path: target/release/apk/aix.apk
+
+      - name: Create or update latest release
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest Build
+          body: "Automatically generated APK from the latest commit.\n\nCommit: ${{ github.sha }}\nDate: $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+          files: target/release/apk/aix.apk
+          prerelease: true
+          overwrite: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

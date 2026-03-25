@@ -1,4 +1,3 @@
-# This file is just an alias; the actual build is in build.yml
 name: Main Build
 
 on:
@@ -12,4 +11,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: echo "Using build.yml workflow"
+      - run: echo "This workflow is a placeholder; actual build is handled by build.yml"
