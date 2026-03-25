@@ -947,6 +947,7 @@ impl eframe::App for AixApp {
 #[cfg(target_os = "android")]
 #[no_mangle]
 fn android_main(_app: android_activity::AndroidApp) {
+    std::fs::write("/sdcard/aix_log.txt", "android_main entered\n").ok();
     std::panic::set_hook(Box::new(|info| {
         let log_path = "/sdcard/aix_crash.log";
         let _ = std::fs::OpenOptions::new()
