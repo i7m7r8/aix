@@ -48,7 +48,7 @@ jobs:
           cat >> Cargo.toml << SIGNING
 
           [package.metadata.android.signing.release]
-          keystore = "release-key.jks"
+          path = "release-key.jks"
           keystore_password = "${{ secrets.KEYSTORE_PASSWORD }}"
           key_alias = "${{ secrets.KEY_ALIAS }}"
           key_password = "${{ secrets.KEYSTORE_PASSWORD }}"
