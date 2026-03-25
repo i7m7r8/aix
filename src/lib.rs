@@ -456,7 +456,7 @@ impl AixState {
         } else {
             Vec::new()
         };
-        let max_id = tasks.iter().map(|t: let max_id = tasks.iter().map(|t| t.id).max().unwrap_or(0) + 1;Task| t.id).max().unwrap_or(0) + 1;
+let max_id = tasks.iter().map(|t:         let max_id = tasks.iter().map(|t: let max_id = tasks.iter().map(|t| t.id).max().unwrap_or(0) + 1;Task| t.id).max().unwrap_or(0) + 1;Task| t.id).max().unwrap_or(0) + 1;
         let chat_history = if let Ok(file) = File::open(&settings.chat_history_file) {
             serde_json::from_reader(file).unwrap_or_default()
         } else {
