@@ -22,11 +22,11 @@ tracing = "0.1"
 tracing-subscriber = "0.3"
 lazy_static = "1.4"
 
-# HTTP client for API calls (only once)
-reqwest = { version = "0.12", features = ["json", "stream"] }
+# HTTP client with rustls (no OpenSSL)
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 
-# Telegram bot
-teloxide = { version = "0.12", features = ["macros", "webhooks"] }
+# Telegram bot (with rustls)
+teloxide = { version = "0.12", default-features = false, features = ["macros", "webhooks", "rustls"] }
 
 # Vector memory & embeddings
 usearch = "0.1"
@@ -55,9 +55,6 @@ egui_plot = "0.30"
 # Android specifics
 android-activity = { version = "0.6", features = ["game-activity"] }
 android_logger = "0.13"
-
-# Database (optional)
-sqlx = { version = "0.8", features = ["runtime-tokio-native-tls", "sqlite"] }
 
 # Concurrency
 crossbeam = "0.8"
