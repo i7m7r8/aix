@@ -110,7 +110,7 @@ impl MarkovBrain {
             }
         }
         result
-    }
+    
 }
 
 // -----------------------------------------------------------------------------
@@ -157,7 +157,7 @@ impl Default for Settings {
             tasks_file: data_dir.join("tasks.json"),
             chat_history_file: data_dir.join("chat_history.json"),
         }
-    }
+    
 }
 
 // -----------------------------------------------------------------------------
@@ -229,7 +229,7 @@ impl EditorState {
         } else {
             self.highlighter = None;
         }
-    }
+    
 }
 
 // -----------------------------------------------------------------------------
@@ -320,7 +320,7 @@ impl ZipDebugger {
         self.analysis.clear();
         self.warnings.clear();
         self.errors.clear();
-    }
+    
 }
 
 // -----------------------------------------------------------------------------
@@ -356,7 +356,7 @@ impl SearchState {
             }
             eprintln!("Found {} files", found.len());
         });
-    }
+    
 }
 
 // -----------------------------------------------------------------------------
@@ -410,7 +410,7 @@ impl CalculatorState {
             }
         }
         self.result = format!("{}", result);
-    }
+    
 }
 
 // -----------------------------------------------------------------------------
@@ -584,7 +584,7 @@ impl AixState {
 
     fn save_tasks(&self) {
         let _ = fs::write(&self.settings.tasks_file, serde_json::to_string_pretty(&self.tasks).unwrap());
-    }
+    
 }
 
 // -----------------------------------------------------------------------------
@@ -993,7 +993,7 @@ impl eframe::App for AixApp {
                 });
             }
         });
-    }
+    
 }
 
 // Panic hook
