@@ -44,7 +44,7 @@ jobs:
           ls -la release-key.jks
 
       - name: Build APK
-        run: cargo apk build --release --key release-key.jks --keystore-pass ${{ secrets.KEYSTORE_PASSWORD }} --key-alias ${{ secrets.KEY_ALIAS }} --key-pass ${{ secrets.KEYSTORE_PASSWORD }}
+        run: cargo apk build --release --keystore release-key.jks --keystore-password ${{ secrets.KEYSTORE_PASSWORD }} --alias ${{ secrets.KEY_ALIAS }} --key-password ${{ secrets.KEYSTORE_PASSWORD }}
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
