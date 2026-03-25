@@ -1,4 +1,4 @@
-//! AIX Ultra – Phase 1: Markov AI, file tools, modern UI (Telegram disabled for stability).
+//! AIX Ultra – Phase 2: Agentic AI with OpenAI‑compatible API, tools, and memory.
 
 #![cfg_attr(target_os = "android", allow(unused_imports))]
 
@@ -22,11 +22,11 @@ use syntect::highlighting::{ThemeSet, Style};
 use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
 
-// Random generation
-use rand::Rng;
-
 // Logging
 use log;
+
+// Async
+use tokio::runtime::Runtime;
 
 // -----------------------------------------------------------------------------
 // App tabs
@@ -48,7 +48,7 @@ enum AppTab {
 }
 
 // -----------------------------------------------------------------------------
-// Markov chain AI
+// Chat message (for UI)
 // -----------------------------------------------------------------------------
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -58,64 +58,298 @@ struct ChatMessage {
     time: String,
 }
 
-struct MarkovBrain {
-    chain: HashMap<String, Vec<String>>,
-    order: usize,
+// -----------------------------------------------------------------------------
+// Agent core
+// -----------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Action {
+    tool: String,
+    args: String,
 }
 
-impl MarkovBrain {
-    fn new(order: usize) -> Self {
-        Self {
-            chain: HashMap::new(),
-            order,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+enum ActionResult {
+    Success(String),
+    Failure(String),
+    Data(Vec<u8>),
+    None,
+}
+
+#[async_trait::async_trait]
+pub trait Tool: Send + Sync {
+    fn name(&self) -> &'static str;
+    fn description(&self) -> &'static str;
+    async fn execute(&self, args: &str) -> Result<ActionResult>;
+}
+
+// -----------------------------------------------------------------------------
+// Tools
+// -----------------------------------------------------------------------------
+
+pub struct ShellTool;
+
+#[async_trait::async_trait]
+impl Tool for ShellTool {
+    fn name(&self) -> &'static str { "shell" }
+    fn description(&self) -> &'static str { "Execute a shell command" }
+    async fn execute(&self, args: &str) -> Result<ActionResult> {
+        let output = tokio::process::Command::new("sh")
+            .arg("-c")
+            .arg(args)
+            .output()
+            .await?;
+        let result = String::from_utf8_lossy(&output.stdout).to_string();
+        Ok(ActionResult::Success(result))
+    }
+}
+
+pub struct WebTool;
+
+#[async_trait::async_trait]
+impl Tool for WebTool {
+    fn name(&self) -> &'static str { "web" }
+    fn description(&self) -> &'static str { "Fetch a URL and return HTML content" }
+    async fn execute(&self, args: &str) -> Result<ActionResult> {
+        let client = reqwest::Client::new();
+        let response = client.get(args).send().await?;
+        let text = response.text().await?;
+        Ok(ActionResult::Success(text))
+    }
+}
+
+pub struct FileTool;
+
+#[async_trait::async_trait]
+impl Tool for FileTool {
+    fn name(&self) -> &'static str { "file" }
+    fn description(&self) -> &'static str { "Read, write, list, delete files (args: operation path [content])" }
+    async fn execute(&self, args: &str) -> Result<ActionResult> {
+        let parts: Vec<&str> = args.split_whitespace().collect();
+        if parts.is_empty() {
+            return Ok(ActionResult::Failure("Missing arguments".into()));
+        }
+        match parts[0] {
+            "read" => {
+                if parts.len() < 2 { return Ok(ActionResult::Failure("Missing path".into())); }
+                let path = PathBuf::from(parts[1]);
+                let content = fs::read_to_string(&path)?;
+                Ok(ActionResult::Success(content))
+            }
+            "write" => {
+                if parts.len() < 3 { return Ok(ActionResult::Failure("Missing path or content".into())); }
+                let path = PathBuf::from(parts[1]);
+                let content = parts[2..].join(" ");
+                fs::write(&path, content)?;
+                Ok(ActionResult::Success("File written".into()))
+            }
+            "list" => {
+                let dir = if parts.len() > 1 { parts[1] } else { "." };
+                let entries = fs::read_dir(dir)?;
+                let mut out = String::new();
+                for entry in entries {
+                    let entry = entry?;
+                    out.push_str(&entry.file_name().to_string_lossy());
+                    out.push('\n');
+                }
+                Ok(ActionResult::Success(out))
+            }
+            "delete" => {
+                if parts.len() < 2 { return Ok(ActionResult::Failure("Missing path".into())); }
+                let path = PathBuf::from(parts[1]);
+                fs::remove_file(&path)?;
+                Ok(ActionResult::Success("File deleted".into()))
+            }
+            _ => Ok(ActionResult::Failure("Unknown file operation".into())),
         }
     }
+}
 
-    fn learn(&mut self, text: &str) {
-        let words: Vec<&str> = text.split_whitespace().collect();
-        if words.len() <= self.order {
-            return;
+pub struct CalculatorTool;
+
+#[async_trait::async_trait]
+impl Tool for CalculatorTool {
+    fn name(&self) -> &'static str { "calc" }
+    fn description(&self) -> &'static str { "Evaluate a mathematical expression" }
+    async fn execute(&self, args: &str) -> Result<ActionResult> {
+        let expr = args.trim();
+        if expr.is_empty() {
+            return Ok(ActionResult::Failure("Empty expression".into()));
         }
-        for i in 0..words.len() - self.order {
-            let key = words[i..i + self.order].join(" ");
-            let next = words[i + self.order].to_string();
-            self.chain.entry(key).or_default().push(next);
-        }
-    }
-
-    fn generate(&self, seed: Option<&str>) -> String {
-        if self.chain.is_empty() {
-            return "I'm still learning. Type something to teach me!".into();
-        }
-
-        let mut rng = rand::thread_rng();
-        let mut current = if let Some(s) = seed {
-            s.to_string()
-        } else {
-            self.chain.keys().next().unwrap().clone()
-        };
-
-        let mut result = current.clone();
-        for _ in 0..50 {
-            if let Some(next_words) = self.chain.get(&current) {
-                if next_words.is_empty() {
-                    break;
+        let tokens: Vec<&str> = expr.split_whitespace().collect();
+        let mut result = 0.0;
+        let mut op = '+';
+        for tok in tokens {
+            if let Ok(num) = tok.parse::<f64>() {
+                match op {
+                    '+' => result += num,
+                    '-' => result -= num,
+                    '*' => result *= num,
+                    '/' => result /= num,
+                    _ => {}
                 }
-                let idx = rng.gen_range(0..next_words.len());
-                let next = &next_words[idx];
-                result.push(' ');
-                result.push_str(next);
-                // shift current window
-                let mut parts: Vec<&str> = result.split_whitespace().collect();
-                if parts.len() > self.order {
-                    parts = parts[parts.len() - self.order..].to_vec();
-                }
-                current = parts.join(" ");
             } else {
-                break;
+                op = match tok {
+                    "+" => '+',
+                    "-" => '-',
+                    "*" => '*',
+                    "/" => '/',
+                    _ => '?',
+                };
             }
         }
-        result
+        Ok(ActionResult::Success(format!("{}", result)))
+    }
+}
+
+pub struct ToolRegistry {
+    tools: HashMap<String, Box<dyn Tool>>,
+}
+
+impl ToolRegistry {
+    pub fn new() -> Self {
+        let mut reg = Self { tools: HashMap::new() };
+        reg.register(Box::new(ShellTool));
+        reg.register(Box::new(WebTool));
+        reg.register(Box::new(FileTool));
+        reg.register(Box::new(CalculatorTool));
+        reg
+    }
+    pub fn register(&mut self, tool: Box<dyn Tool>) {
+        self.tools.insert(tool.name().to_string(), tool);
+    }
+    pub fn get(&self, name: &str) -> Option<&Box<dyn Tool>> {
+        self.tools.get(name)
+    }
+    pub async fn execute(&self, name: &str, args: &str) -> Result<ActionResult> {
+        if let Some(tool) = self.get(name) {
+            tool.execute(args).await
+        } else {
+            Err(anyhow!("Tool '{}' not found", name))
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// LLM client (OpenAI‑compatible)
+// -----------------------------------------------------------------------------
+
+#[derive(Clone)]
+pub struct LlmClient {
+    api_key: String,
+    base_url: String,
+    model: String,
+    client: reqwest::Client,
+}
+
+#[derive(Debug, Serialize)]
+struct ChatRequest {
+    model: String,
+    messages: Vec<ChatMessageApi>,
+    temperature: f32,
+    max_tokens: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct ChatMessageApi {
+    role: String,
+    content: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ChatResponse {
+    choices: Vec<Choice>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Choice {
+    message: ChatMessageApi,
+}
+
+impl LlmClient {
+    pub fn new(api_key: String, base_url: String, model: String) -> Self {
+        Self {
+            api_key,
+            base_url,
+            model,
+            client: reqwest::Client::new(),
+        }
+    }
+
+    pub async fn complete(&self, prompt: &str, system: &str) -> Result<String> {
+        let url = format!("{}/chat/completions", self.base_url);
+        let messages = vec![
+            ChatMessageApi { role: "system".to_string(), content: system.to_string() },
+            ChatMessageApi { role: "user".to_string(), content: prompt.to_string() },
+        ];
+        let request = ChatRequest {
+            model: self.model.clone(),
+            messages,
+            temperature: 0.7,
+            max_tokens: 1024,
+        };
+        let response = self.client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .json(&request)
+            .send()
+            .await?;
+        if !response.status().is_success() {
+            let text = response.text().await?;
+            return Err(anyhow!("LLM API error: {}", text));
+        }
+        let body: ChatResponse = response.json().await?;
+        if let Some(choice) = body.choices.first() {
+            Ok(choice.message.content.clone())
+        } else {
+            Err(anyhow!("No choices in response"))
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Agent
+// -----------------------------------------------------------------------------
+
+struct Agent {
+    llm: LlmClient,
+    tools: ToolRegistry,
+    memory: Vec<String>, // simple memory for now
+}
+
+impl Agent {
+    fn new(llm: LlmClient) -> Self {
+        Self {
+            llm,
+            tools: ToolRegistry::new(),
+            memory: Vec::new(),
+        }
+    }
+
+    async fn plan(&mut self, goal: &str) -> Result<Vec<Action>> {
+        let system = "You are a task planner. Given a goal, break it into a sequence of actions. Each action is a JSON object with fields 'tool' and 'args'. Available tools: shell, web, file, calc. Return only a JSON array of actions, nothing else.";
+        let prompt = format!("Goal: {}", goal);
+        let response = self.llm.complete(&prompt, system).await?;
+        let actions: Vec<Action> = serde_json::from_str(&response)?;
+        Ok(actions)
+    }
+
+    async fn execute_action(&self, action: &Action) -> Result<ActionResult> {
+        self.tools.execute(&action.tool, &action.args).await
+    }
+
+    async fn run_agent(&mut self, goal: &str) -> Result<String> {
+        let actions = self.plan(goal).await?;
+        let mut outputs = Vec::new();
+        for action in actions {
+            let result = self.execute_action(&action).await?;
+            match result {
+                ActionResult::Success(s) => outputs.push(s),
+                ActionResult::Failure(e) => outputs.push(format!("Error: {}", e)),
+                _ => outputs.push("No output".into()),
+            }
+        }
+        Ok(outputs.join("\n"))
     }
 }
 
@@ -145,7 +379,9 @@ struct Task {
 #[derive(Serialize, Deserialize, Clone)]
 struct Settings {
     dark_mode: bool,
-    bot_token: String,
+    api_key: String,
+    api_base_url: String,
+    model: String,
     notes_file: PathBuf,
     tasks_file: PathBuf,
     chat_history_file: PathBuf,
@@ -158,7 +394,9 @@ impl Default for Settings {
         fs::create_dir_all(&data_dir).ok();
         Self {
             dark_mode: true,
-            bot_token: String::new(),
+            api_key: String::new(),
+            api_base_url: "https://api.openai.com/v1".to_string(),
+            model: "gpt-3.5-turbo".to_string(),
             notes_file: data_dir.join("notes.json"),
             tasks_file: data_dir.join("tasks.json"),
             chat_history_file: data_dir.join("chat_history.json"),
@@ -167,7 +405,7 @@ impl Default for Settings {
 }
 
 // -----------------------------------------------------------------------------
-// File browser
+// File browser, editor, zip debugger, search, calculator
 // -----------------------------------------------------------------------------
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -178,10 +416,6 @@ struct FileEntry {
     size: u64,
     modified: SystemTime,
 }
-
-// -----------------------------------------------------------------------------
-// Editor
-// -----------------------------------------------------------------------------
 
 struct EditorState {
     current_file: Option<PathBuf>,
@@ -203,7 +437,6 @@ impl EditorState {
             highlighter: None,
         }
     }
-
     fn load_file(&mut self, path: &Path) -> Result<()> {
         let content = fs::read_to_string(path)?;
         self.content = content;
@@ -211,7 +444,6 @@ impl EditorState {
         self.update_highlighter();
         Ok(())
     }
-
     fn save_file(&mut self) -> Result<()> {
         if let Some(path) = &self.current_file {
             fs::write(path, &self.content)?;
@@ -220,7 +452,6 @@ impl EditorState {
             Err(anyhow!("No file loaded"))
         }
     }
-
     fn update_highlighter(&mut self) {
         if let Some(path) = &self.current_file {
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
@@ -238,10 +469,6 @@ impl EditorState {
     }
 }
 
-// -----------------------------------------------------------------------------
-// Zip debugger
-// -----------------------------------------------------------------------------
-
 struct ZipDebugger {
     extracted_dir: Option<PathBuf>,
     analysis: Vec<String>,
@@ -258,13 +485,11 @@ impl ZipDebugger {
             errors: Vec::new(),
         }
     }
-
     fn extract_zip(&mut self, zip_path: &Path) -> Result<()> {
         let temp_dir = tempfile::tempdir()?;
         let dest = temp_dir.path();
         let file = File::open(zip_path)?;
         let mut archive = ZipArchive::new(file)?;
-
         for i in 0..archive.len() {
             let mut file = archive.by_index(i)?;
             let outpath = dest.join(file.name());
@@ -284,12 +509,10 @@ impl ZipDebugger {
         self.analyze_code();
         Ok(())
     }
-
     fn analyze_code(&mut self) {
         self.analysis.clear();
         self.warnings.clear();
         self.errors.clear();
-
         if let Some(dir) = &self.extracted_dir {
             for entry in WalkDir::new(dir).into_iter().filter_map(|e| e.ok()) {
                 let path = entry.path();
@@ -317,7 +540,6 @@ impl ZipDebugger {
             }
         }
     }
-
     fn cleanup(&mut self) {
         if let Some(dir) = &self.extracted_dir {
             let _ = fs::remove_dir_all(dir);
@@ -328,10 +550,6 @@ impl ZipDebugger {
         self.errors.clear();
     }
 }
-
-// -----------------------------------------------------------------------------
-// Search
-// -----------------------------------------------------------------------------
 
 struct SearchState {
     query: String,
@@ -347,7 +565,6 @@ impl SearchState {
             searching: false,
         }
     }
-
     fn start_search(&mut self, root: &Path) {
         self.results.clear();
         self.searching = true;
@@ -365,10 +582,6 @@ impl SearchState {
     }
 }
 
-// -----------------------------------------------------------------------------
-// Calculator
-// -----------------------------------------------------------------------------
-
 struct CalculatorState {
     expression: String,
     result: String,
@@ -381,14 +594,12 @@ impl CalculatorState {
             result: String::new(),
         }
     }
-
     fn evaluate(&mut self) {
         let expr = self.expression.trim();
         if expr.is_empty() {
             self.result = "".into();
             return;
         }
-        // Simple arithmetic evaluator (only supports + - * / and whitespace)
         let tokens: Vec<&str> = expr.split_whitespace().collect();
         if tokens.is_empty() {
             self.result = "Invalid expression".into();
@@ -427,7 +638,8 @@ struct AixState {
     tab: AppTab,
     chat_history: Vec<ChatMessage>,
     chat_input: String,
-    markov: MarkovBrain,
+    agent: Option<Agent>,
+    agent_running: bool,
     logs: Vec<String>,
     settings: Settings,
     file_browser_current_dir: PathBuf,
@@ -449,7 +661,6 @@ impl AixState {
         let data_dir = proj.data_dir();
         fs::create_dir_all(&data_dir).ok();
 
-        // Load persisted data
         let notes = if let Ok(file) = File::open(&settings.notes_file) {
             serde_json::from_reader(file).unwrap_or_default()
         } else {
@@ -471,7 +682,8 @@ impl AixState {
             tab: AppTab::Welcome,
             chat_history,
             chat_input: String::new(),
-            markov: MarkovBrain::new(2),
+            agent: None,
+            agent_running: false,
             logs: vec!["[BOOT] AIX Ultra started.".into()],
             settings,
             file_browser_current_dir: PathBuf::from("/sdcard"),
@@ -506,7 +718,34 @@ impl AixState {
         }
     }
 
+    fn init_agent(&mut self) -> bool {
+        if self.agent.is_some() {
+            return true;
+        }
+        if self.settings.api_key.is_empty() {
+            self.logs.push("API key not set. Please configure in Settings.".into());
+            return false;
+        }
+        let llm = LlmClient::new(
+            self.settings.api_key.clone(),
+            self.settings.api_base_url.clone(),
+            self.settings.model.clone(),
+        );
+        self.agent = Some(Agent::new(llm));
+        self.logs.push("Agent initialized with LLM.".into());
+        true
+    }
+
     fn send_chat_message(&mut self, text: &str) {
+        if !self.init_agent() {
+            self.chat_history.push(ChatMessage {
+                sender: "AI".into(),
+                text: "Please set your API key in Settings first.".into(),
+                time: Local::now().format("%H:%M").to_string(),
+            });
+            return;
+        }
+
         self.chat_history.push(ChatMessage {
             sender: "USER".into(),
             text: text.to_string(),
@@ -514,15 +753,38 @@ impl AixState {
         });
         self.chat_input.clear();
 
-        self.markov.learn(text);
-        let response = self.markov.generate(None);
+        let loading_idx = self.chat_history.len();
         self.chat_history.push(ChatMessage {
             sender: "AI".into(),
-            text: response,
+            text: "Thinking...".into(),
             time: Local::now().format("%H:%M").to_string(),
         });
 
-        // Persist chat history
+        self.agent_running = true;
+        let agent = self.agent.as_mut().unwrap();
+        let goal = text.to_string();
+        // Run agent in a separate thread to avoid UI freeze
+        // We'll use a blocking approach with a new runtime
+        let runtime = Runtime::new().unwrap();
+        let result = runtime.block_on(agent.run_agent(&goal));
+        match result {
+            Ok(response) => {
+                self.chat_history[loading_idx] = ChatMessage {
+                    sender: "AI".into(),
+                    text: response,
+                    time: Local::now().format("%H:%M").to_string(),
+                };
+            }
+            Err(e) => {
+                self.chat_history[loading_idx] = ChatMessage {
+                    sender: "AI".into(),
+                    text: format!("Error: {}", e),
+                    time: Local::now().format("%H:%M").to_string(),
+                };
+            }
+        }
+        self.agent_running = false;
+
         let _ = fs::write(&self.settings.chat_history_file, serde_json::to_string_pretty(&self.chat_history).unwrap());
     }
 
@@ -615,7 +877,7 @@ impl AixApp {
             ui.add_space(10.0);
             ui.label(welcome_text);
             ui.add_space(20.0);
-            ui.label("AI Chat uses a Markov chain – talk to it and it will learn!");
+            ui.label("AI Agent uses OpenAI‑compatible API. Set your API key in Settings.");
         });
     }
 
@@ -746,9 +1008,7 @@ impl AixApp {
             let mut to_delete = Vec::new();
             for (i, note) in state.notes.iter().enumerate() {
                 ui.horizontal(|ui| {
-                    if ui.button(&note.title).clicked() {
-                        // For simplicity, just show a message; a real implementation would edit.
-                    }
+                    if ui.button(&note.title).clicked() {}
                     if ui.button("❌").clicked() {
                         to_delete.push(i);
                     }
@@ -788,7 +1048,7 @@ impl AixApp {
         for i in to_delete.into_iter().rev() {
             state.delete_task(i);
         }
-        state.save_tasks(); // save after deletions
+        state.save_tasks();
         ui.separator();
         ui.horizontal(|ui| {
             let _new_task = ui.text_edit_singleline(&mut state.shell_input);
@@ -837,11 +1097,38 @@ impl AixApp {
         ui.heading("Settings");
         ui.checkbox(&mut state.settings.dark_mode, "Dark Mode");
         ui.horizontal(|ui| {
-            ui.label("Telegram Bot Token:");
-            ui.text_edit_singleline(&mut state.settings.bot_token);
+            ui.label("API Key:");
+            ui.text_edit_singleline(&mut state.settings.api_key);
+        });
+        ui.horizontal(|ui| {
+            ui.label("Base URL:");
+            ui.text_edit_singleline(&mut state.settings.api_base_url);
+        });
+        ui.horizontal(|ui| {
+            ui.label("Model:");
+            ui.text_edit_singleline(&mut state.settings.model);
         });
         if ui.button("Save Settings").clicked() {
-            state.logs.push("Settings saved (placeholder)".into());
+            state.agent = None;
+            state.init_agent();
+            state.logs.push("Settings saved and agent reinitialized.".into());
+        }
+        if ui.button("Test API").clicked() {
+            if state.settings.api_key.is_empty() {
+                state.logs.push("API key is empty".into());
+            } else {
+                let llm = LlmClient::new(
+                    state.settings.api_key.clone(),
+                    state.settings.api_base_url.clone(),
+                    state.settings.model.clone(),
+                );
+                let runtime = Runtime::new().unwrap();
+                let response = runtime.block_on(llm.complete("Hello, are you there?", "You are a helpful assistant."));
+                match response {
+                    Ok(msg) => state.logs.push(format!("Test OK: {}", msg)),
+                    Err(e) => state.logs.push(format!("Test failed: {}", e)),
+                }
+            }
         }
     }
 
@@ -943,63 +1230,10 @@ impl eframe::App for AixApp {
     }
 }
 
-// Panic hook
+// Panic hook and Android entry point
 #[cfg(target_os = "android")]
 #[no_mangle]
 fn android_main(_app: android_activity::AndroidApp) {
-    // Request storage permissions at startup
-    let app_ref = app.clone();
-    std::thread::spawn(move || {
-        use android_activity::input::InputEvent;
-        use android_activity::looper::Poll;
-        let permissions = [
-            "android.permission.READ_EXTERNAL_STORAGE",
-            "android.permission.WRITE_EXTERNAL_STORAGE",
-            "android.permission.MANAGE_EXTERNAL_STORAGE",
-        ];
-        for perm in permissions {
-            if app_ref.check_permission(perm) != android_activity::Permission::Granted {
-                app_ref.request_permissions(&[perm]);
-                // Wait for result (simple loop)
-                loop {
-                    if app_ref.check_permission(perm) == android_activity::Permission::Granted {
-                        break;
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(100));
-                }
-            }
-        }
-        // Start the foreground service
-        let intent = android_activity::Intent::new_service(&app_ref, "AIXService");
-        app_ref.start_service(&intent);
-    });
-    std::fs::write("/sdcard/aix_log.txt", "android_main entered\n").ok();
-    // Request storage permissions at startup
-    let app_ref = app.clone();
-    std::thread::spawn(move || {
-        use android_activity::input::InputEvent;
-        use android_activity::looper::Poll;
-        let permissions = [
-            "android.permission.READ_EXTERNAL_STORAGE",
-            "android.permission.WRITE_EXTERNAL_STORAGE",
-            "android.permission.MANAGE_EXTERNAL_STORAGE",
-        ];
-        for perm in permissions {
-            if app_ref.check_permission(perm) != android_activity::Permission::Granted {
-                app_ref.request_permissions(&[perm]);
-                // Wait for result (simple loop)
-                loop {
-                    if app_ref.check_permission(perm) == android_activity::Permission::Granted {
-                        break;
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(100));
-                }
-            }
-        }
-        // Start the foreground service
-        let intent = android_activity::Intent::new_service(&app_ref, "AIXService");
-        app_ref.start_service(&intent);
-    });
     std::panic::set_hook(Box::new(|info| {
         let log_path = "/sdcard/aix_crash.log";
         let _ = std::fs::OpenOptions::new()
