@@ -12,6 +12,8 @@ use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::fs::OpenOptions;
+use std::io::Write;
 use log::LevelFilter;
 use std::time::{SystemTime, Duration};
 use walkdir::WalkDir;
@@ -842,14 +844,14 @@ impl eframe::App for AixApp {
 #[cfg(target_os = "android")]
 #[no_mangle]
 fn android_main(_app: android_activity::AndroidApp) {
-    use std::fs::OpenOptions;
-    use std::io::Write;
+    
+    
     let _ = OpenOptions::new().create(true).write(true).open("/sdcard/aix_startup.txt").map(|mut f| f.write_all(b"started"));
     android_logger::init_once(android_logger::Config::default().with_tag("AIX").with_max_level(log::LevelFilter::Info));
     log::info!("AIX Ultra started");
     use std::panic;
-    use std::fs::OpenOptions;
-    use std::io::Write;
+    
+    
     let original_hook = panic::take_hook();
     panic::set_hook(Box::new(move |panic_info| {
         let log_path = "/sdcard/aix_crash.log";
