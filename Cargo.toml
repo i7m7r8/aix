@@ -35,3 +35,7 @@ log = "0.4"
 
 # Iced 0.14 – with wgpu for Android (includes winit and android-activity)
 iced = { version = "0.14", features = ["tokio", "wgpu"] }
+
+# Patch android-activity to a stable version with native-activity feature
+[patch.crates-io]
+android-activity = { version = "0.5.0", features = ["native-activity"] }
