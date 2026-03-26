@@ -33,12 +33,13 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 android_logger = "0.13"
 log = "0.4"
 
-# Slint UI – pin exact version
-slint = "=1.5.1"
-slint-build = "=1.5.1"
+# Slint UI with Android backend
+slint = { version = "1.15.1", features = ["backend-android-activity-05", "renderer-software"] }
+slint-build = "1.15.1"
+android-activity = { version = "=0.5.0", features = ["jni", "ndk"] }
 
-# Lock fontdb to the version that Slint 1.5.1 expects
+# Pin fontdb to the version that Slint 1.15.1 expects (from its own dependency tree)
 fontdb = "=0.12.0"
 
 [build-dependencies]
-slint-build = "=1.5.1"
+slint-build = "1.15.1"
