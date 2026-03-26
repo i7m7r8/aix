@@ -27,8 +27,11 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Android SDK
+      - name: Setup Android SDK (with NDK)
         uses: android-actions/setup-android@v3
+        with:
+          ndk: true
+          ndk-version: '26.1.10909125'
 
       - name: Decode Keystore
         run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > keystore.jks
@@ -42,10 +45,12 @@ jobs:
 
       - name: Sign APKs
         run: |
+          BUILD_TOOLS=$(ls $ANDROID_HOME/build-tools | sort -V | tail -n1)
+          APKSIGNER="$ANDROID_HOME/build-tools/$BUILD_TOOLS/apksigner"
           for apk in target/dx/aix/release/android/**/*.apk; do
             if [ -f "$apk" ]; then
               echo "Signing $(basename $apk)"
-              apksigner sign --ks keystore.jks \
+              $APKSIGNER sign --ks keystore.jks \
                 --ks-pass pass:${{ secrets.KEYSTORE_PASSWORD }} \
                 --ks-key-alias ${{ secrets.KEYSTORE_ALIAS }} \
                 --out "signed-$(basename $apk)" "$apk"

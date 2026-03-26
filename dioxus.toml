@@ -7,3 +7,5 @@ asset_dir = "assets"
 package = "com.i7m7r8.aix"
 version_code = 1
 version_name = "0.1.0"
+min_sdk = 21
+target_sdk = 33

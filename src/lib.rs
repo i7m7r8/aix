@@ -1,11 +1,13 @@
 use arti_client::{TorClient, TorClientConfig};
-use arti_client::config::BridgesConfig;
+use arti_client::config::{BridgesConfig, TransportConfig};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 use std::os::raw::c_int;
+use jni::objects::{JClass, JString};
+use jni::JNIEnv;
 
 #[derive(Clone, Serialize, Deserialize, Default, Debug)]
 pub struct SniConfig {
@@ -24,8 +26,7 @@ pub struct TorManager {
 impl TorManager {
     pub fn new() -> Self { Self::default() }
 
-    pub async fn update_sni(&self, mut new_sni: SniConfig) -> Result<()> {
-        new_sni.last_updated = Some(chrono::Utc::now().to_rfc3339());
+    pub async fn update_sni(&self, new_sni: SniConfig) -> Result<()> {
         let mut cfg = self.sni_config.lock().await;
         *cfg = new_sni;
         info!("Custom SNI updated → {}", cfg.custom_sni);
@@ -38,10 +39,9 @@ impl TorManager {
         let sni = self.sni_config.lock().await.clone();
         if sni.enabled && !sni.bridge_line.trim().is_empty() {
             let mut bridges = BridgesConfig::default();
-            // Correct way for Arti 0.40
             bridges.set_enabled(true);
-            // Use bridge lines via config (adjust if needed for PT)
-            // For simple bridge lines, set via tor_config or builder
+            bridges.set_bridges(vec![sni.bridge_line.clone()]);
+            config_builder = config_builder.bridges(bridges);
             info!("Using custom bridge with SNI: {}", sni.custom_sni);
         }
 
@@ -74,18 +74,57 @@ impl TorManager {
 pub static TOR_MANAGER: once_cell::sync::Lazy<Arc<TorManager>> = 
     once_cell::sync::Lazy::new(|| Arc::new(TorManager::new()));
 
-// JNI placeholders
+// JNI implementation for VPN service
 #[no_mangle]
 pub extern "C" fn Java_com_i7m7r8_aix_TorVpnService_startTorWithTun(
-    _env: jni::JNIEnv,
-    _class: jni::objects::JClass,
-    _tun_fd: c_int,
+    env: JNIEnv,
+    _class: JClass,
+    tun_fd: c_int,
+    sni: JString,
+    bridge: JString,
 ) {
-    info!("TUN FD received - routing placeholder");
+    // Convert Java strings to Rust strings
+    let sni_str: String = env.get_string(sni).unwrap().into();
+    let bridge_str: String = env.get_string(bridge).unwrap().into();
+
+    // Configure SNI
+    let cfg = SniConfig {
+        enabled: true,
+        custom_sni: sni_str.clone(),
+        bridge_line: bridge_str.clone(),
+        last_updated: None,
+    };
+    let tm = TOR_MANAGER.clone();
+    // Start the tunnel in a separate thread to avoid blocking the JNI call
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            if let Err(e) = tm.update_sni(cfg).await {
+                eprintln!("Failed to update SNI: {}", e);
+                return;
+            }
+            if let Err(e) = tm.start_tor().await {
+                eprintln!("Failed to start Tor: {}", e);
+                return;
+            }
+            // TODO: Implement packet forwarding with tun_fd
+            info!("TUN FD received: {} – packet forwarding not yet implemented", tun_fd);
+            // For now, we just keep the thread alive (e.g., sleep forever)
+            loop { tokio::time::sleep(tokio::time::Duration::from_secs(3600)).await; }
+        });
+    });
 }
 
 #[no_mangle]
 pub extern "C" fn Java_com_i7m7r8_aix_TorVpnService_stopTorNative(
-    _env: jni::JNIEnv,
-    _class: jni::objects::JClass,
-) {}
+    _env: JNIEnv,
+    _class: JClass,
+) {
+    let tm = TOR_MANAGER.clone();
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            tm.stop_tor().await;
+        });
+    });
+}

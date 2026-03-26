@@ -1,11 +1,13 @@
 #![allow(non_snake_case)]
 
 use dioxus::prelude::*;
-use dioxus_mobile::launch;
+use dioxus_mobile::{launch, use_android_context};
+use jni::objects::{JObject, JString};
+use jni::JNIEnv;
 use crate::lib::{TorManager, SniConfig, TOR_MANAGER};
 use std::sync::Arc;
 
-mod presets;  // your presets module
+mod presets;
 
 fn App() -> Element {
     let mut status = use_signal(|| "🔴 Disconnected".to_string());
@@ -14,42 +16,77 @@ fn App() -> Element {
     let mut is_connected = use_signal(|| false);
     let mut log = use_signal(|| "Edit Custom SNI or use presets below → then tap CONNECT".to_string());
 
+    // Get Android context for starting the service
+    let android_context = use_android_context();
+
     let connect = move |_| {
-        let tm = TOR_MANAGER.clone();
-        let cfg = SniConfig {
-            enabled: true,
-            custom_sni: sni_input.read().clone(),
-            bridge_line: bridge_input.read().clone(),
-            last_updated: None,
-        };
+        let sni = sni_input.read().clone();
+        let bridge = bridge_input.read().clone();
+        let context = android_context.clone();
 
         spawn(async move {
-            log.set("Updating SNI and starting Tor...".to_string());
-            if let Err(e) = tm.update_sni(cfg).await {
-                log.set(format!("SNI error: {}", e));
-                return;
-            }
-            match tm.start_tor().await {
-                Ok(msg) => {
-                    status.set(msg);
-                    is_connected.set(true);
-                    log.set("✅ Tor + Custom SNI started! (VpnService integration coming next)".to_string());
-                }
-                Err(e) => {
-                    status.set(format!("❌ Failed: {}", e));
-                    log.set(format!("Error: {}", e));
-                }
-            }
+            log.set("Starting VPN service...".to_string());
+
+            // Use JNI to start the TorVpnService with SNI/bridge extras
+            let jni_env = context.get_jni_env().unwrap();
+            let intent = jni_env.new_object(
+                "android/content/Intent",
+                "(Landroid/content/Context;Ljava/lang/Class;)V",
+                &[
+                    context.get_jobject().into(),
+                    jni_env.find_class("com/i7m7r8/aix/TorVpnService").unwrap().into(),
+                ],
+            ).unwrap();
+
+            let sni_str = jni_env.new_string(sni).unwrap();
+            let bridge_str = jni_env.new_string(bridge).unwrap();
+
+            jni_env.call_method(
+                intent.as_obj(),
+                "putExtra",
+                "(Ljava/lang/String;Ljava/lang/String;)Landroid/content/Intent;",
+                &[jni_env.new_string("sni").unwrap().into(), sni_str.into()],
+            ).unwrap();
+            jni_env.call_method(
+                intent.as_obj(),
+                "putExtra",
+                "(Ljava/lang/String;Ljava/lang/String;)Landroid/content/Intent;",
+                &[jni_env.new_string("bridge").unwrap().into(), bridge_str.into()],
+            ).unwrap();
+
+            let _ = jni_env.call_method(
+                context.get_jobject(),
+                "startForegroundService",
+                "(Landroid/content/Intent;)V",
+                &[intent.as_obj()],
+            );
+
+            log.set("VPN service started. Check notification area.".to_string());
+            status.set("🟡 Connecting...".to_string());
         });
     };
 
     let disconnect = move |_| {
-        let tm = TOR_MANAGER.clone();
+        let context = android_context.clone();
         spawn(async move {
-            tm.stop_tor().await;
+            let jni_env = context.get_jni_env().unwrap();
+            let intent = jni_env.new_object(
+                "android/content/Intent",
+                "(Landroid/content/Context;Ljava/lang/Class;)V",
+                &[
+                    context.get_jobject().into(),
+                    jni_env.find_class("com/i7m7r8/aix/TorVpnService").unwrap().into(),
+                ],
+            ).unwrap();
+            let _ = jni_env.call_method(
+                context.get_jobject(),
+                "stopService",
+                "(Landroid/content/Intent;)Z",
+                &[intent.as_obj()],
+            );
+            log.set("Stopping VPN service...".to_string());
             status.set("🔴 Disconnected".to_string());
             is_connected.set(false);
-            log.set("Tor stopped.".to_string());
         });
     };
 
@@ -68,7 +105,7 @@ fn App() -> Element {
             }
 
             main { class: "flex-1 p-6 space-y-8",
-                // Custom SNI Field (fully editable)
+                // Custom SNI Field
                 div { class: "bg-zinc-900 rounded-3xl p-8 border border-zinc-700",
                     h2 { class: "text-2xl font-semibold mb-6 flex items-center gap-3", "🎯 Custom SNI" }
                     input {
@@ -80,7 +117,7 @@ fn App() -> Element {
                     p { class: "text-xs text-zinc-500 mt-4", "Used for SNI imitation in pluggable transports (webtunnel, meek, etc.)" }
                 }
 
-                // Quick Presets (from previous step)
+                // Quick Presets
                 div { class: "bg-zinc-900 rounded-3xl p-8 border border-zinc-700 mt-6",
                     h2 { class: "text-xl font-semibold mb-5 flex items-center gap-2", "⚡ Quick Presets" }
                     div { class: "grid grid-cols-2 gap-3 text-sm",
@@ -105,7 +142,7 @@ fn App() -> Element {
                 div { class: "bg-black/70 rounded-3xl p-6 h-44 overflow-auto font-mono text-sm text-emerald-300", "{log}" }
             }
 
-            // Connected Action Buttons
+            // Action Buttons
             div { class: "p-6 grid grid-cols-2 gap-4 pb-8",
                 button {
                     class: "py-7 rounded-3xl bg-emerald-600 font-bold text-xl active:bg-emerald-500 shadow-lg",
@@ -129,6 +166,11 @@ fn App() -> Element {
 }
 
 fn main() {
-    tracing_subscriber::fmt().with_env_filter("info").init();
+    // Set up Android logging
+    android_logger::init_once(
+        android_logger::Config::default()
+            .with_max_level(log::LevelFilter::Info)
+            .with_tag("AIX"),
+    );
     launch(App);
 }
