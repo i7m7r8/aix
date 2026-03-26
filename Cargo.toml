@@ -18,7 +18,7 @@ once_cell = "1.19"
 serde = { version = "1.0", features = ["derive"] }
 chrono = { version = "0.4", features = ["serde"] }
 
-# Tor client – minimal to avoid openssl
+# Tor client – rustls avoids OpenSSL
 arti-client = { version = "0.40", default-features = false, features = [
     "tokio",
     "rustls",
@@ -33,13 +33,16 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 android_logger = "0.13"
 log = "0.4"
 
-# Slint UI with Android backend
-slint = { version = "1.15.1", features = ["backend-android-activity-05", "renderer-software"] }
-slint-build = "1.15.1"
-android-activity = { version = "=0.5.0", features = ["jni", "ndk"] }
+# Iced UI for Android
+iced = { version = "0.13", features = ["tokio"] }
+iced_winit = "0.13"
+iced_native = "0.13"
+iced_android = "0.1"   # Android integration crate
 
-# Pin fontdb to the version that Slint 1.15.1 expects (from its own dependency tree)
-fontdb = "=0.12.0"
+# Android glue
+android-activity = { version = "0.5", default-features = false }
+ndk = "0.9"
+ndk-context = "0.1"
 
-[build-dependencies]
-slint-build = "1.15.1"
+[target.'cfg(target_os="android")'.dependencies]
+android_logger = "0.13"
