@@ -33,9 +33,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 android_logger = "0.13"
 log = "0.4"
 
-# Slint UI with Android backend (stable version)
-slint = { version = "1.5.1", features = ["backend-android-activity"] }
-slint-build = "1.5.1"
+# Slint UI – pin exact version, let it choose Android backend automatically
+slint = "=1.5.1"
+slint-build = "=1.5.1"
 
 [build-dependencies]
-slint-build = "1.5.1"
+slint-build = "=1.5.1"
