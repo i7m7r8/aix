@@ -1,3 +1,5 @@
+mod presets;
+mod presets;
 #![allow(non_snake_case)]
 
 use dioxus::prelude::*;
@@ -79,6 +81,52 @@ fn App() -> Element {
                         oninput: move |e| sni_input.set(e.value())
                     }
                     p { class: "text-xs text-zinc-500 mt-4", "Used for SNI imitation in pluggable transports (webtunnel, meek, etc.)" }
+// ⚡ Quick Presets Section
+                // ⚡ Quick Presets
+                div { class: "bg-zinc-900 rounded-3xl p-8 border border-zinc-700 mt-6",
+                    h2 { class: "text-xl font-semibold mb-5 flex items-center gap-2", "⚡ Quick Presets" }
+                    div { class: "grid grid-cols-2 gap-3 text-sm",
+                        button {
+                            class: "bg-zinc-800 hover:bg-violet-600/30 py-3 px-4 rounded-2xl transition-colors active:scale-95",
+                            onclick: move |_| {
+                                sni_input.set("www.cloudflare.com".to_string());
+                                bridge_input.set("webtunnel 185.220.101.1:443 sni-imitation=www.cloudflare.com fingerprint=...".to_string());
+                                log.set("✅ Loaded Cloudflare SNI preset".to_string());
+                            },
+                            "Cloudflare SNI"
+                        }
+                        button {
+                            class: "bg-zinc-800 hover:bg-violet-600/30 py-3 px-4 rounded-2xl transition-colors active:scale-95",
+                            onclick: move |_| {
+                                sni_input.set("vk.ru".to_string());
+                                bridge_input.set("webtunnel [2a0a:0:0:0::1]:443 sni-imitation=vk.ru fingerprint=...".to_string());
+                                log.set("✅ Loaded VK.ru SNI (good for heavy censorship)".to_string());
+                            },
+                            "VK.ru SNI"
+                        }
+                        button {
+                            class: "bg-zinc-800 hover:bg-violet-600/30 py-3 px-4 rounded-2xl transition-colors active:scale-95",
+                            onclick: move |_| {
+                                sni_input.set("www.microsoft.com".to_string());
+                                bridge_input.set("webtunnel 185.220.101.2:443 sni-imitation=www.microsoft.com fingerprint=...".to_string());
+                                log.set("✅ Loaded Microsoft SNI preset".to_string());
+                            },
+                            "Microsoft SNI"
+                        }
+                        button {
+                            class: "bg-zinc-800 hover:bg-violet-600/30 py-3 px-4 rounded-2xl transition-colors active:scale-95",
+                            onclick: move |_| {
+                                sni_input.set("ya.ru".to_string());
+                                bridge_input.set("webtunnel 185.220.101.3:443 sni-imitation=ya.ru fingerprint=...".to_string());
+                                log.set("✅ Loaded Yandex SNI preset".to_string());
+                            },
+                            "Yandex SNI"
+                        }
+                    }
+                    p { class: "text-xs text-zinc-500 mt-5 leading-relaxed",
+                        "Tap to load popular SNI + webtunnel bridge combos. Custom SNI works best with webtunnel."
+                    }
+                }
                 }
 
                 // Bridge Line
