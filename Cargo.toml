@@ -33,11 +33,6 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 android_logger = "0.15.0"
 log = "0.4.29"
 
-# egui + Android glue – pin android-activity with native-activity feature
+# egui + Android glue – let eframe handle android-activity
 eframe = { version = "0.27.2", features = ["wgpu", "android-native-activity"] }
 egui = "0.27.2"
-
-# Explicit android-activity to ensure correct feature and version
-android-activity = { version = "0.6.1", features = ["native-activity", "ndk"] }
-ndk = "0.9.0"
-ndk-context = "0.1.1"
