@@ -1,5 +1,4 @@
 use arti_client::{TorClient, TorClientConfig};
-use arti_client::config::pt::{BridgeConfig, BridgesConfig};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use anyhow::Result;
@@ -34,27 +33,16 @@ impl TorManager {
     }
 
     pub async fn start_tor(&self) -> Result<String> {
-        let mut config_builder = TorClientConfig::builder();
+        let config_builder = TorClientConfig::builder();
 
-        let sni = self.sni_config.lock().await.clone();
-        if sni.enabled && !sni.bridge_line.trim().is_empty() {
-            match BridgeConfig::from_line(&sni.bridge_line) {
-                Ok(bridge) => {
-                    config_builder.bridges().bridges().push(bridge);
-                    info!("Using custom bridge with SNI: {}", sni.custom_sni);
-                }
-                Err(e) => {
-                    info!("Invalid bridge line, ignoring: {} – error: {:?}", sni.bridge_line, e);
-                }
-            }
-        }
-
+        // For now, ignore bridges – we'll add them later
         let config = config_builder.build()?;
         let tor_client = TorClient::create_bootstrapped(config).await?;
 
         let mut guard = self.client.lock().await;
         *guard = Some(tor_client);
 
+        let sni = self.sni_config.lock().await;
         Ok(format!("✅ Tor started with SNI: {}", sni.custom_sni))
     }
 
