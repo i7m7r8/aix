@@ -1238,29 +1238,17 @@ impl eframe::App for AixApp {
 
 #[cfg(target_os = "android")]
 #[no_mangle]
-fn android_main(_app: android_activity::AndroidApp) {
-    // Setup logging as early as possible
-    android_logger::init_once(android_logger::Config::default().with_tag("AIX").with_max_level(log::LevelFilter::Info));
-    log::info!("android_main entered");
 
-    // Write to a file that is always writable
-    let _ = std::fs::write("/data/local/tmp/aix_startup.txt", "entered android_main\n");
+#[cfg(target_os = "android")]
+#[no_mangle]
+fn android_main(app: android_activity::AndroidApp) {
+    use android_activity::AndroidApp;
+    use std::fs;
+    use std::io::Write;
 
-    // Panic hook writes to logcat and /sdcard/aix_crash.log
-    std::panic::set_hook(Box::new(|info| {
-        let log_path = "/sdcard/aix_crash.log";
-        let _ = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(log_path)
-            .and_then(|mut f| writeln!(f, "Panic at {:?}: {}", chrono::Local::now(), info));
-        log::error!("Panic: {}", info);
-    }));
+    let cache_dir = app.get_cache_dir().unwrap();
+    let marker_path = cache_dir.join("aix_startup.txt");
+    let _ = fs::write(&marker_path, format!("started at {:?}\n", std::time::SystemTime::now()));
 
-    let options = eframe::NativeOptions::default();
-    eframe::run_native(
-        "AIX Ultra",
-        options,
-        Box::new(|cc| Ok(Box::new(AixApp::new(cc)))),
-    ).unwrap();
+    std::thread::sleep(std::time::Duration::from_secs(5));
 }
