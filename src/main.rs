@@ -2,7 +2,7 @@
 
 use iced::{
     widget::{button, column, container, row, scrollable, text, text_input, Column, Row, Space},
-    Alignment, Element, Length, Sandbox, Settings,
+    Alignment, Element, Length, Task,
 };
 use tokio::sync::mpsc;
 use std::sync::Arc;
@@ -40,13 +40,15 @@ enum Message {
     UIEvent(UIMessage),
 }
 
-impl Sandbox for AixVpn {
+impl iced::Application for AixVpn {
+    type Executor = iced::executor::Default;
     type Message = Message;
+    type Theme = iced::Theme;
+    type Flags = ();
 
-    fn new() -> Self {
-        // Create a channel to communicate with async tasks
+    fn new(_flags: ()) -> (Self, Task<Message>) {
         let (ui_tx, ui_rx) = mpsc::unbounded_channel();
-        Self {
+        let app = Self {
             status: "🔴 Disconnected".to_string(),
             sni_input: "www.cloudflare.com".to_string(),
             bridge_input: "webtunnel 185.220.101.1:443 sni-imitation=www.cloudflare.com fingerprint=...".to_string(),
@@ -54,14 +56,15 @@ impl Sandbox for AixVpn {
             is_connected: false,
             ui_tx: Some(ui_tx),
             ui_rx: Some(ui_rx),
-        }
+        };
+        (app, Task::none())
     }
 
     fn title(&self) -> String {
         String::from("AIX VPN")
     }
 
-    fn update(&mut self, message: Message) {
+    fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::Connect => {
                 let sni = self.sni_input.clone();
@@ -93,6 +96,7 @@ impl Sandbox for AixVpn {
                         }
                     }
                 });
+                Task::none()
             }
             Message::Disconnect => {
                 let tx = self.ui_tx.clone().unwrap();
@@ -102,13 +106,21 @@ impl Sandbox for AixVpn {
                     let _ = tx.send(UIMessage::ConnectionStopped);
                     let _ = tx.send(UIMessage::Log("Tor stopped.".to_string()));
                 });
+                Task::none()
             }
-            Message::SniChanged(s) => self.sni_input = s,
-            Message::BridgeChanged(b) => self.bridge_input = b,
+            Message::SniChanged(s) => {
+                self.sni_input = s;
+                Task::none()
+            }
+            Message::BridgeChanged(b) => {
+                self.bridge_input = b;
+                Task::none()
+            }
             Message::Preset(sni, bridge) => {
                 self.sni_input = sni;
                 self.bridge_input = bridge;
                 self.log = format!("✅ Loaded preset: {} SNI", sni);
+                Task::none()
             }
             Message::UIEvent(ui_msg) => {
                 match ui_msg {
@@ -117,6 +129,7 @@ impl Sandbox for AixVpn {
                     UIMessage::ConnectionStarted => self.is_connected = true,
                     UIMessage::ConnectionStopped => self.is_connected = false,
                 }
+                Task::none()
             }
         }
     }
@@ -238,8 +251,8 @@ pub fn main() -> iced::Result {
     );
 
     // Run Iced application
-    AixVpn::run(Settings {
-        antialiasing: true,
-        ..Settings::default()
-    })
+    iced::application("AIX VPN", AixVpn::update, AixVpn::view)
+        .subscription(AixVpn::subscription)
+        .theme(|_| iced::Theme::Dark)
+        .run()
 }
