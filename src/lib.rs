@@ -1,5 +1,5 @@
 use arti_client::{TorClient, TorClientConfig};
-use arti_client::config::{BridgesConfig, TransportConfig};
+use arti_client::config::{BridgesConfig, BridgeConfig};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use anyhow::Result;
@@ -39,10 +39,14 @@ impl TorManager {
         let sni = self.sni_config.lock().await.clone();
         if sni.enabled && !sni.bridge_line.trim().is_empty() {
             let mut bridges = BridgesConfig::default();
-            bridges.set_enabled(true);
-            bridges.set_bridges(vec![sni.bridge_line.clone()]);
-            config_builder = config_builder.bridges(bridges);
-            info!("Using custom bridge with SNI: {}", sni.custom_sni);
+            // Parse the bridge line – note: BridgeConfig::parse returns a Result
+            if let Ok(bridge) = BridgeConfig::parse(&sni.bridge_line) {
+                bridges.set_bridges(vec![bridge]);
+                config_builder = config_builder.bridges(bridges);
+                info!("Using custom bridge with SNI: {}", sni.custom_sni);
+            } else {
+                info!("Invalid bridge line, ignoring: {}", sni.bridge_line);
+            }
         }
 
         let config = config_builder.build()?;
