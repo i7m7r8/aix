@@ -19,7 +19,7 @@ jobs:
       - name: Install tools
         run: |
           cargo install cargo-ndk --locked
-          cargo install dioxus-cli --version 0.7.3 --locked
+          cargo install dioxus-cli --version 0.6 --locked
 
       - name: Setup Java
         uses: actions/setup-java@v4
