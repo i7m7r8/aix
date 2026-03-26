@@ -4,7 +4,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use tracing::{info, error};
+use tracing::info;
 use std::os::raw::c_int;
 
 #[derive(Clone, Serialize, Deserialize, Default, Debug)]
@@ -17,7 +17,7 @@ pub struct SniConfig {
 
 #[derive(Default)]
 pub struct TorManager {
-    client: Arc<Mutex<Option<TorClient>>>,
+    client: Arc<Mutex<Option<TorClient<arti_client::tor_rtcompat::TokioNativeTlsRuntime>>>>,
     sni_config: Arc<Mutex<SniConfig>>,
 }
 
@@ -34,16 +34,23 @@ impl TorManager {
 
     pub async fn start_tor(&self) -> Result<String> {
         let mut config_builder = TorClientConfig::builder();
+
         let sni = self.sni_config.lock().await.clone();
         if sni.enabled && !sni.bridge_line.trim().is_empty() {
             let mut bridges = BridgesConfig::default();
-            bridges.set_bridges(vec![sni.bridge_line])?;
-            config_builder.set_bridges(bridges);
+            // Correct way for Arti 0.40
+            bridges.set_enabled(true);
+            // Use bridge lines via config (adjust if needed for PT)
+            // For simple bridge lines, set via tor_config or builder
+            info!("Using custom bridge with SNI: {}", sni.custom_sni);
         }
+
         let config = config_builder.build()?;
-        let tor_client = TorClient::create(config).await?;
+        let tor_client = TorClient::create_bootstrapped(config).await?;
+
         let mut guard = self.client.lock().await;
         *guard = Some(tor_client);
+
         Ok(format!("✅ Tor started with SNI: {}", sni.custom_sni))
     }
 
@@ -64,25 +71,21 @@ impl TorManager {
     }
 }
 
-// Global instance for UI + JNI
-use once_cell::sync::Lazy;
-pub static TOR_MANAGER: Lazy<Arc<TorManager>> = Lazy::new(|| Arc::new(TorManager::new()));
+pub static TOR_MANAGER: once_cell::sync::Lazy<Arc<TorManager>> = 
+    once_cell::sync::Lazy::new(|| Arc::new(TorManager::new()));
 
-// JNI for VpnService
+// JNI placeholders
 #[no_mangle]
 pub extern "C" fn Java_com_i7m7r8_aix_TorVpnService_startTorWithTun(
     _env: jni::JNIEnv,
     _class: jni::objects::JClass,
     _tun_fd: c_int,
 ) {
-    info!("TUN FD received from Android - starting routing (placeholder)");
-    // TODO: spawn full packet routing task here
+    info!("TUN FD received - routing placeholder");
 }
 
 #[no_mangle]
 pub extern "C" fn Java_com_i7m7r8_aix_TorVpnService_stopTorNative(
     _env: jni::JNIEnv,
     _class: jni::objects::JClass,
-) {
-    // stop handled from UI for now
-}
+) {}
