@@ -1235,6 +1235,9 @@ impl eframe::App for AixApp {
 #[no_mangle]
 #[cfg(target_os = "android")]
 #[no_mangle]
+
+#[cfg(target_os = "android")]
+#[no_mangle]
 fn android_main(_app: android_activity::AndroidApp) {
     // Setup logging as early as possible
     android_logger::init_once(android_logger::Config::default().with_tag("AIX").with_max_level(log::LevelFilter::Info));
@@ -1261,12 +1264,3 @@ fn android_main(_app: android_activity::AndroidApp) {
         Box::new(|cc| Ok(Box::new(AixApp::new(cc)))),
     ).unwrap();
 }
-
-// Add this at the very top of android_main (after the function opening brace)
-    use android_logger::Config;
-    android_logger::init_once(Config::default().with_tag("AIX").with_max_level(log::LevelFilter::Info));
-    log::info!("android_main entered");
-    // Also write to a known writable location
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).write(true).open("/data/local/tmp/aix_startup.txt") {
-        let _ = writeln!(f, "started at {:?}", std::time::SystemTime::now());
-    }
