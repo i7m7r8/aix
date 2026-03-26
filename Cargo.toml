@@ -18,11 +18,9 @@ once_cell = "1.19"
 serde = { version = "1.0", features = ["derive"] }
 chrono = { version = "0.4", features = ["serde"] }
 
-# Tor client – disable default features and use rustls
+# Tor client – minimal to avoid openssl
 arti-client = { version = "0.40", default-features = false, features = [
     "tokio",
-    "bridge-client",
-    "pt-client",
     "rustls",
 ] }
 
@@ -35,9 +33,15 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 android_logger = "0.13"
 log = "0.4"
 
-# Slint UI (Android backend)
-slint = { version = "1.15.1", features = ["backend-android-activity-05"] }
+# Slint UI with Android backend
+slint = { version = "1.15.1", features = [
+    "backend-android-activity-05",
+    "renderer-software",
+] }
 slint-build = "1.15.1"
+
+# Ensure android-activity with jni is present
+android-activity = { version = "0.5", features = ["jni"] }
 
 [build-dependencies]
 slint-build = "1.15.1"
