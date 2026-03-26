@@ -6,6 +6,10 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib", "staticlib", "lib"]
 
+[[bin]]
+name = "aix"
+path = "src/main.rs"
+
 [dependencies]
 # Core
 tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "time", "macros"] }
@@ -35,6 +39,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 android_logger = "0.13"
 log = "0.4"
 
-# VPN & TUN (packet forwarding will use these)
-tun = "0.5"
-smoltcp = "0.10"
+# VPN & TUN – removed for now, we'll use raw fd from Java
+# tun = "0.5"
+# smoltcp = "0.10"

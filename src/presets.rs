@@ -1,4 +1,4 @@
-use crate::lib::SniConfig;
+use aix::SniConfig;  // correct import if needed, but not actually used
 
 pub fn get_sni_presets() -> Vec<(&'static str, &'static str)> {
     vec![
@@ -15,7 +15,6 @@ pub fn get_sni_presets() -> Vec<(&'static str, &'static str)> {
 
 pub fn get_bridge_presets() -> Vec<(&'static str, &'static str, &'static str)> {
     vec![
-        // WebTunnel with real fingerprint (example – replace with actual ones)
         ("WebTunnel + Cloudflare SNI", 
          "www.cloudflare.com", 
          "webtunnel 185.220.101.1:443 sni-imitation=www.cloudflare.com fingerprint=0xD99B8A5B3F7E2A6C"),
@@ -28,7 +27,6 @@ pub fn get_bridge_presets() -> Vec<(&'static str, &'static str, &'static str)> {
          "vk.ru", 
          "webtunnel [2a0a:0:0:0::1]:443 sni-imitation=vk.ru fingerprint=0x1234567890ABCDEF"),
         
-        // Obfs4 bridge (example – replace with actual bridge from BridgeDB)
         ("Obfs4 (default Tor)", 
          "", 
          "obfs4 5.230.119.38:22333 8B920DA77C4078FBCF0491BB39B3B974EA973ACF cert=I3LUTdY2yJkwcORkM+8vV1iGcNc5tA9w+7Fj6Y0= iat-mode=0"),

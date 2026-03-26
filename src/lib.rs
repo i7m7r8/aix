@@ -1,5 +1,5 @@
 use arti_client::{TorClient, TorClientConfig};
-use arti_client::config::{BridgesConfig, BridgeConfig};
+use arti_client::config::pt::{BridgeConfig, BridgesConfig};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use anyhow::Result;
@@ -38,14 +38,14 @@ impl TorManager {
 
         let sni = self.sni_config.lock().await.clone();
         if sni.enabled && !sni.bridge_line.trim().is_empty() {
-            let mut bridges = BridgesConfig::default();
-            // Parse the bridge line – note: BridgeConfig::parse returns a Result
-            if let Ok(bridge) = BridgeConfig::parse(&sni.bridge_line) {
-                bridges.set_bridges(vec![bridge]);
-                config_builder = config_builder.bridges(bridges);
-                info!("Using custom bridge with SNI: {}", sni.custom_sni);
-            } else {
-                info!("Invalid bridge line, ignoring: {}", sni.bridge_line);
+            match BridgeConfig::from_line(&sni.bridge_line) {
+                Ok(bridge) => {
+                    config_builder.bridges().bridges().push(bridge);
+                    info!("Using custom bridge with SNI: {}", sni.custom_sni);
+                }
+                Err(e) => {
+                    info!("Invalid bridge line, ignoring: {} – error: {:?}", sni.bridge_line, e);
+                }
             }
         }
 
@@ -87,11 +87,9 @@ pub extern "C" fn Java_com_i7m7r8_aix_TorVpnService_startTorWithTun(
     sni: JString,
     bridge: JString,
 ) {
-    // Convert Java strings to Rust strings
     let sni_str: String = env.get_string(sni).unwrap().into();
     let bridge_str: String = env.get_string(bridge).unwrap().into();
 
-    // Configure SNI
     let cfg = SniConfig {
         enabled: true,
         custom_sni: sni_str.clone(),
@@ -99,7 +97,7 @@ pub extern "C" fn Java_com_i7m7r8_aix_TorVpnService_startTorWithTun(
         last_updated: None,
     };
     let tm = TOR_MANAGER.clone();
-    // Start the tunnel in a separate thread to avoid blocking the JNI call
+
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
@@ -111,9 +109,7 @@ pub extern "C" fn Java_com_i7m7r8_aix_TorVpnService_startTorWithTun(
                 eprintln!("Failed to start Tor: {}", e);
                 return;
             }
-            // TODO: Implement packet forwarding with tun_fd
             info!("TUN FD received: {} – packet forwarding not yet implemented", tun_fd);
-            // For now, we just keep the thread alive (e.g., sleep forever)
             loop { tokio::time::sleep(tokio::time::Duration::from_secs(3600)).await; }
         });
     });
