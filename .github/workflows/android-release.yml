@@ -17,7 +17,9 @@ jobs:
           targets: aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
 
       - name: Install tools
-        run: cargo install cargo-ndk dioxus-cli --version 0.7 --locked
+        run: |
+          cargo install cargo-ndk --locked
+          cargo install dioxus-cli --version 0.7.3 --locked
 
       - name: Setup Java
         uses: actions/setup-java@v4
