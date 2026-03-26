@@ -1,4 +1,5 @@
-//! AIX Ultra – Phase 2 with full features, error handling, and startup logging.
+//! AIX Ultra – Full‑featured Phase 2 with standard Android entry point.
+
 #![cfg_attr(target_os = "android", allow(unused_imports))]
 
 use anyhow::{anyhow, Result};
@@ -1226,18 +1227,13 @@ impl eframe::App for AixApp {
     }
 }
 
-// Panic hook and Android entry point
+// Standard Android entry point
 #[cfg(target_os = "android")]
 #[no_mangle]
 fn android_main(_app: android_activity::AndroidApp) {
-    // Setup logging first
     android_logger::init_once(android_logger::Config::default().with_tag("AIX").with_max_level(log::LevelFilter::Info));
     info!("android_main entered");
-
-    // Write to a file that is always writable
     let _ = std::fs::write("/sdcard/aix_startup.txt", "entered android_main\n");
-
-    // Panic hook writes to logcat and /sdcard/aix_crash.log
     std::panic::set_hook(Box::new(|info| {
         let log_path = "/sdcard/aix_crash.log";
         let _ = std::fs::OpenOptions::new()
@@ -1247,12 +1243,6 @@ fn android_main(_app: android_activity::AndroidApp) {
             .and_then(|mut f| writeln!(f, "Panic at {:?}: {}", chrono::Local::now(), info));
         log::error!("Panic: {}", info);
     }));
-
-    // Create the assets directory (though it should be in the APK)
-    // Ensure welcome.txt exists
-    let _ = std::fs::create_dir_all("/data/local/tmp/assets");
-    // In case include_str fails, we have a fallback inside render_welcome.
-
     let options = eframe::NativeOptions::default();
     eframe::run_native(
         "AIX Ultra",
@@ -1260,54 +1250,3 @@ fn android_main(_app: android_activity::AndroidApp) {
         Box::new(|cc| Ok(Box::new(AixApp::new(cc)))),
     ).unwrap();
 }
-
-#[cfg(target_os = "android")]
-
-#[cfg(target_os = "android")]
-
-#[cfg(target_os = "android")]
-    fn android_main(app: android_activity::AndroidApp) {
-        android_logger::init_once(android_logger::Config::default().with_tag("AIX").with_max_level(log::LevelFilter::Info));
-        info!("android_main entered");
-        let _ = std::fs::write("/sdcard/aix_startup.txt", "entered android_main\n");
-        std::panic::set_hook(Box::new(|info| {
-            let log_path = "/sdcard/aix_crash.log";
-            let _ = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(log_path)
-                .and_then(|mut f| writeln!(f, "Panic at {:?}: {}", chrono::Local::now(), info));
-            log::error!("Panic: {}", info);
-        }));
-        let options = eframe::NativeOptions::default();
-        eframe::run_native(
-            "AIX Ultra",
-            options,
-            Box::new(|cc| Ok(Box::new(AixApp::new(cc)))),
-        ).unwrap();
-    }
-);
-
-#[cfg(target_os = "android")]
-android_activity::android_activity_main!(
-    fn android_main(app: android_activity::AndroidApp) {
-        android_logger::init_once(android_logger::Config::default().with_tag("AIX").with_max_level(log::LevelFilter::Info));
-        info!("android_main entered");
-        let _ = std::fs::write("/sdcard/aix_startup.txt", "entered android_main\n");
-        std::panic::set_hook(Box::new(|info| {
-            let log_path = "/sdcard/aix_crash.log";
-            let _ = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(log_path)
-                .and_then(|mut f| writeln!(f, "Panic at {:?}: {}", chrono::Local::now(), info));
-            log::error!("Panic: {}", info);
-        }));
-        let options = eframe::NativeOptions::default();
-        eframe::run_native(
-            "AIX Ultra",
-            options,
-            Box::new(|cc| Ok(Box::new(AixApp::new(cc)))),
-        ).unwrap();
-    }
-);
