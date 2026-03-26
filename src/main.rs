@@ -1,16 +1,12 @@
 #![allow(non_snake_case)]
 
-use iced::{
-    widget::{button, column, container, row, scrollable, text, text_input, Column, Row, Space},
-    Alignment, Element, Length, Task,
-};
+use cranpose::prelude::*;
 use tokio::sync::mpsc;
 use std::sync::Arc;
 
 use aix::{SniConfig, TOR_MANAGER};
 
-// Messages sent from the async task to the UI thread
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 enum UIMessage {
     Status(String),
     Log(String),
@@ -18,237 +14,185 @@ enum UIMessage {
     ConnectionStopped,
 }
 
-// Internal app state
-struct AixVpn {
-    status: String,
-    sni_input: String,
-    bridge_input: String,
-    log: String,
-    is_connected: bool,
-    ui_tx: Option<mpsc::UnboundedSender<UIMessage>>,
-    ui_rx: Option<mpsc::UnboundedReceiver<UIMessage>>,
-}
-
-#[derive(Debug, Clone)]
-enum Message {
-    Connect,
-    Disconnect,
-    SniChanged(String),
-    BridgeChanged(String),
-    Preset(String, String),
-    UIEvent(UIMessage),
-}
-
-impl iced::Application for AixVpn {
-    type Executor = iced::executor::Default;
-    type Message = Message;
-    type Theme = iced::Theme;
-    type Flags = ();
-
-    fn new(_flags: ()) -> (Self, Task<Message>) {
-        let (ui_tx, ui_rx) = mpsc::unbounded_channel();
-        let app = Self {
-            status: "🔴 Disconnected".to_string(),
-            sni_input: "www.cloudflare.com".to_string(),
-            bridge_input: "webtunnel 185.220.101.1:443 sni-imitation=www.cloudflare.com fingerprint=...".to_string(),
-            log: "Edit Custom SNI or use presets below → then tap CONNECT".to_string(),
-            is_connected: false,
-            ui_tx: Some(ui_tx),
-            ui_rx: Some(ui_rx),
-        };
-        (app, Task::none())
-    }
-
-    fn title(&self) -> String {
-        String::from("AIX VPN")
-    }
-
-    fn update(&mut self, message: Message) -> Task<Message> {
-        match message {
-            Message::Connect => {
-                let sni = self.sni_input.clone();
-                let bridge = self.bridge_input.clone();
-                let tx = self.ui_tx.clone().unwrap();
-                self.log = "Updating SNI and starting Tor...".to_string();
-                self.status = "🟡 Connecting...".to_string();
-
-                tokio::spawn(async move {
-                    let cfg = SniConfig {
-                        enabled: true,
-                        custom_sni: sni,
-                        bridge_line: bridge,
-                        last_updated: None,
-                    };
-                    if let Err(e) = TOR_MANAGER.update_sni(cfg).await {
-                        let _ = tx.send(UIMessage::Log(format!("SNI error: {}", e)));
-                        return;
-                    }
-                    match TOR_MANAGER.start_tor().await {
-                        Ok(msg) => {
-                            let _ = tx.send(UIMessage::Status(msg));
-                            let _ = tx.send(UIMessage::ConnectionStarted);
-                            let _ = tx.send(UIMessage::Log("✅ Tor + Custom SNI started!".to_string()));
-                        }
-                        Err(e) => {
-                            let _ = tx.send(UIMessage::Status(format!("❌ Failed: {}", e)));
-                            let _ = tx.send(UIMessage::Log(format!("Error: {}", e)));
-                        }
-                    }
-                });
-                Task::none()
-            }
-            Message::Disconnect => {
-                let tx = self.ui_tx.clone().unwrap();
-                tokio::spawn(async move {
-                    TOR_MANAGER.stop_tor().await;
-                    let _ = tx.send(UIMessage::Status("🔴 Disconnected".to_string()));
-                    let _ = tx.send(UIMessage::ConnectionStopped);
-                    let _ = tx.send(UIMessage::Log("Tor stopped.".to_string()));
-                });
-                Task::none()
-            }
-            Message::SniChanged(s) => {
-                self.sni_input = s;
-                Task::none()
-            }
-            Message::BridgeChanged(b) => {
-                self.bridge_input = b;
-                Task::none()
-            }
-            Message::Preset(sni, bridge) => {
-                self.sni_input = sni;
-                self.bridge_input = bridge;
-                self.log = format!("✅ Loaded preset: {} SNI", sni);
-                Task::none()
-            }
-            Message::UIEvent(ui_msg) => {
-                match ui_msg {
-                    UIMessage::Status(s) => self.status = s,
-                    UIMessage::Log(s) => self.log = s,
-                    UIMessage::ConnectionStarted => self.is_connected = true,
-                    UIMessage::ConnectionStopped => self.is_connected = false,
-                }
-                Task::none()
-            }
-        }
-    }
-
-    fn subscription(&self) -> iced::Subscription<Message> {
-        let rx = self.ui_rx.as_ref().unwrap().clone();
-        iced::subscription::unfold(rx, |mut rx| async {
-            rx.recv().await.map(|msg| (Message::UIEvent(msg), rx))
-        })
-    }
-
-    fn view(&self) -> Element<Message> {
-        let header = row![
-            text("AIX VPN").size(32),
-            Space::with_width(Length::Fill),
-            text(&self.status).size(16),
-        ]
-        .align_items(Alignment::Center)
-        .padding(20);
-
-        let sni_section = column![
-            text("🎯 Custom SNI").size(18),
-            text_input("www.example.com", &self.sni_input).on_input(Message::SniChanged),
-            text("Used for SNI imitation in pluggable transports").size(12).style(iced::theme::Text::Color(iced::Color::from_rgb(0.5, 0.5, 0.5))),
-        ]
-        .spacing(10);
-
-        let presets_section = column![
-            text("⚡ Quick Presets").size(16),
-            row![
-                button("Cloudflare SNI").on_press(Message::Preset(
-                    "www.cloudflare.com".to_string(),
-                    "webtunnel 185.220.101.1:443 sni-imitation=www.cloudflare.com fingerprint=...".to_string()
-                )),
-                button("VK.ru SNI").on_press(Message::Preset(
-                    "vk.ru".to_string(),
-                    "webtunnel [2a0a:0:0:0::1]:443 sni-imitation=vk.ru fingerprint=...".to_string()
-                )),
-                button("Microsoft SNI").on_press(Message::Preset(
-                    "www.microsoft.com".to_string(),
-                    "webtunnel 185.220.101.2:443 sni-imitation=www.microsoft.com fingerprint=...".to_string()
-                )),
-                button("Yandex SNI").on_press(Message::Preset(
-                    "ya.ru".to_string(),
-                    "webtunnel 185.220.101.3:443 sni-imitation=ya.ru fingerprint=...".to_string()
-                )),
-            ]
-            .spacing(5)
-            .wrap(),
-            text("Tap preset → edit SNI freely → then CONNECT").size(12).style(iced::theme::Text::Color(iced::Color::from_rgb(0.5, 0.5, 0.5))),
-        ]
-        .spacing(10);
-
-        let bridge_section = column![
-            text("🌉 Bridge Line").size(16),
-            text_input("bridge line...", &self.bridge_input)
-                .on_input(Message::BridgeChanged)
-                .padding(10)
-                .height(Length::Units(80)),
-        ]
-        .spacing(10);
-
-        let log_section = scrollable(
-            text(&self.log)
-                .size(12)
-                .style(iced::theme::Text::Color(iced::Color::from_rgb(0.3, 0.8, 0.3)))
-        )
-        .height(Length::Units(150))
-        .padding(10);
-
-        let buttons = row![
-            button("CONNECT")
-                .on_press(Message::Connect)
-                .style(iced::theme::Button::Primary)
-                .padding(10),
-            button("DISCONNECT")
-                .on_press(Message::Disconnect)
-                .style(iced::theme::Button::Destructive)
-                .padding(10),
-        ]
-        .spacing(20)
-        .align_items(Alignment::Center);
-
-        let bottom_nav = row![
-            text("🏠 Home"),
-            text("🌉 Bridges"),
-            text("⚙️ Settings"),
-        ]
-        .spacing(20)
-        .align_items(Alignment::Center);
-
-        let content = column![
-            header,
-            sni_section,
-            presets_section,
-            bridge_section,
-            log_section,
-            buttons,
-            bottom_nav,
-        ]
-        .spacing(20)
-        .padding(20);
-
-        container(content)
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .center_x()
-            .into()
-    }
-}
-
-pub fn main() -> iced::Result {
+fn main() {
     android_logger::init_once(
         android_logger::Config::default()
             .with_max_level(log::LevelFilter::Info)
             .with_tag("AIX"),
     );
 
-    iced::application("AIX VPN", AixVpn::update, AixVpn::view)
-        .subscription(AixVpn::subscription)
-        .theme(|_| iced::Theme::Dark)
-        .run()
+    AppLauncher::new()
+        .with_title("AIX VPN")
+        .run(|| app())
+}
+
+#[composable]
+fn app() -> Element {
+    let status = use_state(|| "🔴 Disconnected".to_string());
+    let sni_input = use_state(|| "www.cloudflare.com".to_string());
+    let bridge_input = use_state(|| "webtunnel 185.220.101.1:443 sni-imitation=www.cloudflare.com fingerprint=...".to_string());
+    let log_text = use_state(|| "Edit Custom SNI or use presets below → then tap CONNECT".to_string());
+    let is_connected = use_state(|| false);
+
+    // Channel for async UI updates
+    let (tx, mut rx) = use_state(|| {
+        let (tx, rx) = mpsc::unbounded_channel();
+        (tx, rx)
+    });
+
+    // Spawn a task to listen for UI messages
+    let status_clone = status.clone();
+    let log_clone = log_text.clone();
+    let connected_clone = is_connected.clone();
+    let rx = rx.clone();
+    use_effect(move || {
+        let mut rx = rx;
+        let status = status_clone;
+        let log = log_clone;
+        let connected = connected_clone;
+        spawn(async move {
+            while let Some(msg) = rx.recv().await {
+                match msg {
+                    UIMessage::Status(s) => status.set(s),
+                    UIMessage::Log(s) => log.set(s),
+                    UIMessage::ConnectionStarted => connected.set(true),
+                    UIMessage::ConnectionStopped => connected.set(false),
+                }
+            }
+        });
+        || {}
+    });
+
+    let connect = move |_| {
+        let sni = sni_input.get().clone();
+        let bridge = bridge_input.get().clone();
+        let tx = tx.clone();
+        let status = status.clone();
+        let log = log_text.clone();
+        let connected = is_connected.clone();
+        log.set("Updating SNI and starting Tor...".to_string());
+        status.set("🟡 Connecting...".to_string());
+
+        spawn(async move {
+            let cfg = SniConfig {
+                enabled: true,
+                custom_sni: sni,
+                bridge_line: bridge,
+                last_updated: None,
+            };
+            if let Err(e) = TOR_MANAGER.update_sni(cfg).await {
+                let _ = tx.send(UIMessage::Log(format!("SNI error: {}", e)));
+                return;
+            }
+            match TOR_MANAGER.start_tor().await {
+                Ok(msg) => {
+                    let _ = tx.send(UIMessage::Status(msg));
+                    let _ = tx.send(UIMessage::ConnectionStarted);
+                    let _ = tx.send(UIMessage::Log("✅ Tor + Custom SNI started!".to_string()));
+                }
+                Err(e) => {
+                    let _ = tx.send(UIMessage::Status(format!("❌ Failed: {}", e)));
+                    let _ = tx.send(UIMessage::Log(format!("Error: {}", e)));
+                }
+            }
+        });
+    };
+
+    let disconnect = move |_| {
+        let tx = tx.clone();
+        spawn(async move {
+            TOR_MANAGER.stop_tor().await;
+            let _ = tx.send(UIMessage::Status("🔴 Disconnected".to_string()));
+            let _ = tx.send(UIMessage::ConnectionStopped);
+            let _ = tx.send(UIMessage::Log("Tor stopped.".to_string()));
+        });
+    };
+
+    Column(Modifier::fill_max_size().padding(20.0), || {
+        // Header
+        Row(Modifier::fill_width().align(Alignment::Center), || {
+            Text("AIX VPN").font_size(32);
+            Spacer(Modifier::grow(1.0));
+            Text(status.get().clone()).font_size(16);
+        });
+
+        Spacer(Modifier::height(20.0));
+
+        // SNI Input
+        Text("🎯 Custom SNI").font_size(18);
+        TextField {
+            value: sni_input.get().clone(),
+            placeholder: "www.example.com".into(),
+            on_input: move |v| sni_input.set(v),
+        };
+        Text("Used for SNI imitation in pluggable transports")
+            .font_size(12)
+            .color(0x808080);
+
+        Spacer(Modifier::height(10.0));
+
+        // Quick Presets
+        Text("⚡ Quick Presets").font_size(16);
+        Row(Modifier::wrap(), || {
+            Button("Cloudflare SNI", |_| {
+                sni_input.set("www.cloudflare.com".to_string());
+                bridge_input.set("webtunnel 185.220.101.1:443 sni-imitation=www.cloudflare.com fingerprint=...".to_string());
+                log_text.set("✅ Loaded Cloudflare SNI preset".to_string());
+            });
+            Button("VK.ru SNI", |_| {
+                sni_input.set("vk.ru".to_string());
+                bridge_input.set("webtunnel [2a0a:0:0:0::1]:443 sni-imitation=vk.ru fingerprint=...".to_string());
+                log_text.set("✅ Loaded VK.ru SNI".to_string());
+            });
+            Button("Microsoft SNI", |_| {
+                sni_input.set("www.microsoft.com".to_string());
+                bridge_input.set("webtunnel 185.220.101.2:443 sni-imitation=www.microsoft.com fingerprint=...".to_string());
+                log_text.set("✅ Loaded Microsoft SNI".to_string());
+            });
+            Button("Yandex SNI", |_| {
+                sni_input.set("ya.ru".to_string());
+                bridge_input.set("webtunnel 185.220.101.3:443 sni-imitation=ya.ru fingerprint=...".to_string());
+                log_text.set("✅ Loaded Yandex SNI".to_string());
+            });
+        });
+        Text("Tap preset → edit SNI freely → then CONNECT")
+            .font_size(12)
+            .color(0x808080);
+
+        Spacer(Modifier::height(10.0));
+
+        // Bridge Line
+        Text("🌉 Bridge Line").font_size(16);
+        TextField {
+            value: bridge_input.get().clone(),
+            placeholder: "bridge line...".into(),
+            on_input: move |v| bridge_input.set(v),
+        };
+
+        Spacer(Modifier::height(10.0));
+
+        // Log area
+        Scrollable(Modifier::height(150.0), || {
+            Text(log_text.get().clone())
+                .font_size(12)
+                .color(0x4CAF50);
+        });
+
+        Spacer(Modifier::height(20.0));
+
+        // Buttons
+        Row(Modifier::align(Alignment::Center), || {
+            Button("CONNECT", connect).primary();
+            Button("DISCONNECT", disconnect).destructive();
+        });
+
+        Spacer(Modifier::height(20.0));
+
+        // Bottom navigation
+        Row(Modifier::align(Alignment::Center).spacing(20.0), || {
+            Text("🏠 Home");
+            Text("🌉 Bridges");
+            Text("⚙️ Settings");
+        });
+    })
 }
