@@ -40,8 +40,5 @@ slint = { version = "1.15.1", features = [
 ] }
 slint-build = "1.15.1"
 
-# Ensure android-activity with jni is present
-android-activity = { version = "0.5", features = ["jni"] }
-
 [build-dependencies]
 slint-build = "1.15.1"
