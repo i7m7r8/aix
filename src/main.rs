@@ -4,32 +4,30 @@ use iced::{
     widget::{button, column, container, row, scrollable, text, text_input, Column, Row, Space},
     Alignment, Element, Length, Sandbox, Settings,
 };
-use tokio::sync::Mutex;
+use tokio::sync::mpsc;
 use std::sync::Arc;
 
 use aix::{SniConfig, TOR_MANAGER};
 
-pub fn main() -> iced::Result {
-    // Initialize Android logging
-    android_logger::init_once(
-        android_logger::Config::default()
-            .with_max_level(log::LevelFilter::Info)
-            .with_tag("AIX"),
-    );
-
-    // Run Iced application on Android
-    iced::Application::run(Settings {
-        antialiasing: true,
-        ..Settings::default()
-    })
+// Messages sent from the async task to the UI thread
+#[derive(Debug, Clone)]
+enum UIMessage {
+    Status(String),
+    Log(String),
+    ConnectionStarted,
+    ConnectionStopped,
 }
 
+// Internal app state
 struct AixVpn {
     status: String,
     sni_input: String,
     bridge_input: String,
     log: String,
     is_connected: bool,
+    ui_tx: Option<mpsc::UnboundedSender<UIMessage>>,
+    // For receiving messages from the async task
+    ui_rx: Option<mpsc::UnboundedReceiver<UIMessage>>,
 }
 
 #[derive(Debug, Clone)]
@@ -39,22 +37,23 @@ enum Message {
     SniChanged(String),
     BridgeChanged(String),
     Preset(String, String),
-    UpdateStatus(String),
-    UpdateLog(String),
-    ConnectionStarted,
-    ConnectionStopped,
+    UIEvent(UIMessage),
 }
 
 impl Sandbox for AixVpn {
     type Message = Message;
 
     fn new() -> Self {
+        // Create a channel to communicate with async tasks
+        let (ui_tx, ui_rx) = mpsc::unbounded_channel();
         Self {
             status: "🔴 Disconnected".to_string(),
             sni_input: "www.cloudflare.com".to_string(),
             bridge_input: "webtunnel 185.220.101.1:443 sni-imitation=www.cloudflare.com fingerprint=...".to_string(),
             log: "Edit Custom SNI or use presets below → then tap CONNECT".to_string(),
             is_connected: false,
+            ui_tx: Some(ui_tx),
+            ui_rx: Some(ui_rx),
         }
     }
 
@@ -67,10 +66,10 @@ impl Sandbox for AixVpn {
             Message::Connect => {
                 let sni = self.sni_input.clone();
                 let bridge = self.bridge_input.clone();
+                let tx = self.ui_tx.clone().unwrap();
                 self.log = "Updating SNI and starting Tor...".to_string();
                 self.status = "🟡 Connecting...".to_string();
 
-                let tm = TOR_MANAGER.clone();
                 tokio::spawn(async move {
                     let cfg = SniConfig {
                         enabled: true,
@@ -78,27 +77,30 @@ impl Sandbox for AixVpn {
                         bridge_line: bridge,
                         last_updated: None,
                     };
-                    if let Err(e) = tm.update_sni(cfg).await {
-                        // Handle error (send message back to UI)
-                        // For simplicity, we'll use a channel later
-                        eprintln!("SNI error: {}", e);
+                    if let Err(e) = TOR_MANAGER.update_sni(cfg).await {
+                        let _ = tx.send(UIMessage::Log(format!("SNI error: {}", e)));
                         return;
                     }
-                    match tm.start_tor().await {
+                    match TOR_MANAGER.start_tor().await {
                         Ok(msg) => {
-                            // Update status (need to send message)
+                            let _ = tx.send(UIMessage::Status(msg));
+                            let _ = tx.send(UIMessage::ConnectionStarted);
+                            let _ = tx.send(UIMessage::Log("✅ Tor + Custom SNI started!".to_string()));
                         }
                         Err(e) => {
-                            // Handle error
+                            let _ = tx.send(UIMessage::Status(format!("❌ Failed: {}", e)));
+                            let _ = tx.send(UIMessage::Log(format!("Error: {}", e)));
                         }
                     }
                 });
-                // TODO: send messages back to UI (use a channel or async runtime)
             }
             Message::Disconnect => {
-                let tm = TOR_MANAGER.clone();
+                let tx = self.ui_tx.clone().unwrap();
                 tokio::spawn(async move {
-                    tm.stop_tor().await;
+                    TOR_MANAGER.stop_tor().await;
+                    let _ = tx.send(UIMessage::Status("🔴 Disconnected".to_string()));
+                    let _ = tx.send(UIMessage::ConnectionStopped);
+                    let _ = tx.send(UIMessage::Log("Tor stopped.".to_string()));
                 });
             }
             Message::SniChanged(s) => self.sni_input = s,
@@ -108,16 +110,28 @@ impl Sandbox for AixVpn {
                 self.bridge_input = bridge;
                 self.log = format!("✅ Loaded preset: {} SNI", sni);
             }
-            Message::UpdateStatus(s) => self.status = s,
-            Message::UpdateLog(s) => self.log = s,
-            Message::ConnectionStarted => self.is_connected = true,
-            Message::ConnectionStopped => self.is_connected = false,
+            Message::UIEvent(ui_msg) => {
+                match ui_msg {
+                    UIMessage::Status(s) => self.status = s,
+                    UIMessage::Log(s) => self.log = s,
+                    UIMessage::ConnectionStarted => self.is_connected = true,
+                    UIMessage::ConnectionStopped => self.is_connected = false,
+                }
+            }
         }
+    }
+
+    fn subscription(&self) -> iced::Subscription<Message> {
+        // Poll the channel for UI events
+        let rx = self.ui_rx.as_ref().unwrap().clone();
+        iced::subscription::unfold(rx, |mut rx| async {
+            rx.recv().await.map(|msg| (Message::UIEvent(msg), rx))
+        })
     }
 
     fn view(&self) -> Element<Message> {
         let header = row![
-            text("AIX VPN").size(32).font(iced::Font::MONOSPACE),
+            text("AIX VPN").size(32),
             Space::with_width(Length::Fill),
             text(&self.status).size(16),
         ]
@@ -213,4 +227,19 @@ impl Sandbox for AixVpn {
             .center_x()
             .into()
     }
+}
+
+pub fn main() -> iced::Result {
+    // Initialize Android logging
+    android_logger::init_once(
+        android_logger::Config::default()
+            .with_max_level(log::LevelFilter::Info)
+            .with_tag("AIX"),
+    );
+
+    // Run Iced application
+    AixVpn::run(Settings {
+        antialiasing: true,
+        ..Settings::default()
+    })
 }

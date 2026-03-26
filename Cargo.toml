@@ -33,16 +33,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 android_logger = "0.13"
 log = "0.4"
 
-# Iced UI for Android
-iced = { version = "0.13", features = ["tokio"] }
-iced_winit = "0.13"
-iced_native = "0.13"
-iced_android = "0.1"   # Android integration crate
+# Iced UI – with winit and wgpu for Android support
+iced = { version = "0.13", features = ["tokio", "winit", "wgpu"] }
 
-# Android glue
-android-activity = { version = "0.5", default-features = false }
+# Android glue (winit uses this internally, but we need it explicitly for JNI context)
+android-activity = "0.5"
 ndk = "0.9"
 ndk-context = "0.1"
-
-[target.'cfg(target_os="android")'.dependencies]
-android_logger = "0.13"
