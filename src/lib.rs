@@ -1233,22 +1233,27 @@ impl eframe::App for AixApp {
 // Panic hook and Android entry point
 #[cfg(target_os = "android")]
 #[no_mangle]
+#[cfg(target_os = "android")]
+#[no_mangle]
 fn android_main(_app: android_activity::AndroidApp) {
-    use android_logger::Config;
-    android_logger::init_once(Config::default().with_tag("AIX").with_min_level(log::Level::Info));
+    // Setup logging as early as possible
+    android_logger::init_once(android_logger::Config::default().with_tag("AIX").with_max_level(log::LevelFilter::Info));
     log::info!("android_main entered");
-    let _ = std::fs::write("/sdcard/aix_startup.txt", "entered android_main");
+
+    // Write to a file that is always writable
+    let _ = std::fs::write("/data/local/tmp/aix_startup.txt", "entered android_main\n");
+
+    // Panic hook writes to logcat and /sdcard/aix_crash.log
     std::panic::set_hook(Box::new(|info| {
         let log_path = "/sdcard/aix_crash.log";
         let _ = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(log_path)
-            .and_then(|mut f| writeln!(f, "Panic at {:?}: {}", Local::now(), info));
-        android_logger::init_once(android_logger::Config::default().with_tag("AIX"));
+            .and_then(|mut f| writeln!(f, "Panic at {:?}: {}", chrono::Local::now(), info));
         log::error!("Panic: {}", info);
     }));
-    let _ = std::fs::write("/sdcard/aix_startup.txt", "started");
+
     let options = eframe::NativeOptions::default();
     eframe::run_native(
         "AIX Ultra",
@@ -1256,3 +1261,12 @@ fn android_main(_app: android_activity::AndroidApp) {
         Box::new(|cc| Ok(Box::new(AixApp::new(cc)))),
     ).unwrap();
 }
+
+// Add this at the very top of android_main (after the function opening brace)
+    use android_logger::Config;
+    android_logger::init_once(Config::default().with_tag("AIX").with_max_level(log::LevelFilter::Info));
+    log::info!("android_main entered");
+    // Also write to a known writable location
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).write(true).open("/data/local/tmp/aix_startup.txt") {
+        let _ = writeln!(f, "started at {:?}", std::time::SystemTime::now());
+    }
