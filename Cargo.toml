@@ -7,10 +7,9 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-# Async runtime
+# Async
 tokio = { version = "1", features = ["full"] }
 anyhow = "1.0"
-log = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"
@@ -23,13 +22,10 @@ tracing = "0.1"
 tracing-subscriber = "0.3"
 lazy_static = "1.4"
 
-# HTTP client (rustls, no OpenSSL)
+# HTTP client (rustls)
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 
-# Telegram bot (rustls)
-teloxide = { version = "0.12", default-features = false, features = ["macros", "webhooks", "rustls", "ctrlc_handler"] }
-
-# AI / Markov chain
+# Random
 rand = "0.8"
 
 # Tools
@@ -48,22 +44,20 @@ egui = "0.30"
 egui_extras = { version = "0.30", features = ["image"] }
 egui_plot = "0.30"
 
-# Android specifics
+# Android
 android-activity = { version = "0.6", features = ["game-activity"] }
 android_logger = "0.13"
 
-# Concurrency
-crossbeam = "0.8"
-parking_lot = "0.12"
-
 # Persistence
 directories = "5.0"
+
+# Logging
+log = "0.4"
 
 [target.'cfg(target_os = "android")'.dependencies]
 android-activity = { version = "0.6", features = ["game-activity"] }
 
 [package.metadata.android]
-icon = "res/mipmap/ic_launcher.png"
 package = "com.i7m7r8.aix"
 label = "AIX Ultra"
 assets = "assets"
@@ -79,11 +73,6 @@ name = "android.permission.READ_EXTERNAL_STORAGE"
 name = "android.permission.WRITE_EXTERNAL_STORAGE"
 [[package.metadata.android.permission]]
 name = "android.permission.MANAGE_EXTERNAL_STORAGE"
-[[package.metadata.android.permission]]
-name = "android.permission.ACCESS_NOTIFICATION_POLICY"
-[[package.metadata.android.permission]]
-name = "android.permission.SYSTEM_ALERT_WINDOW"
-
 [[package.metadata.android.permission]]
 name = "android.permission.FOREGROUND_SERVICE"
 [[package.metadata.android.permission]]

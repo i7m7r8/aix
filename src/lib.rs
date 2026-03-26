@@ -1,11 +1,11 @@
-//! AIX Ultra – Phase 2: Agentic AI with OpenAI‑compatible API, tools, and memory.
-
+//! AIX Ultra – Phase 2 with full features, error handling, and startup logging.
 #![cfg_attr(target_os = "android", allow(unused_imports))]
 
 use anyhow::{anyhow, Result};
 use chrono::Local;
 use directories::ProjectDirs;
 use eframe::egui;
+use log::{info, error};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{self, File};
@@ -21,9 +21,6 @@ use syntect::easy::HighlightLines;
 use syntect::highlighting::{ThemeSet, Style};
 use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
-
-// Logging
-use log;
 
 // Async
 use tokio::runtime::Runtime;
@@ -48,7 +45,7 @@ enum AppTab {
 }
 
 // -----------------------------------------------------------------------------
-// Chat message (for UI)
+// Chat message
 // -----------------------------------------------------------------------------
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -242,18 +239,18 @@ pub struct LlmClient {
     client: reqwest::Client,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
+struct ChatMessageApi {
+    role: String,
+    content: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct ChatRequest {
     model: String,
     messages: Vec<ChatMessageApi>,
     temperature: f32,
     max_tokens: usize,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct ChatMessageApi {
-    role: String,
-    content: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -763,8 +760,6 @@ impl AixState {
         self.agent_running = true;
         let agent = self.agent.as_mut().unwrap();
         let goal = text.to_string();
-        // Run agent in a separate thread to avoid UI freeze
-        // We'll use a blocking approach with a new runtime
         let runtime = Runtime::new().unwrap();
         let result = runtime.block_on(agent.run_agent(&goal));
         match result {
@@ -858,7 +853,8 @@ struct AixApp {
 
 impl AixApp {
     fn new(_cc: &eframe::CreationContext<'_>) -> Self {
-        android_logger::init_once(android_logger::Config::default().with_tag("AIX"));
+        android_logger::init_once(android_logger::Config::default().with_tag("AIX").with_max_level(log::LevelFilter::Info));
+        info!("AIX Ultra starting...");
         let state = AixState::new();
         Self {
             state: Arc::new(Mutex::new(state)),
@@ -1233,22 +1229,34 @@ impl eframe::App for AixApp {
 // Panic hook and Android entry point
 #[cfg(target_os = "android")]
 #[no_mangle]
-#[cfg(target_os = "android")]
-#[no_mangle]
+fn android_main(_app: android_activity::AndroidApp) {
+    // Setup logging first
+    android_logger::init_once(android_logger::Config::default().with_tag("AIX").with_max_level(log::LevelFilter::Info));
+    info!("android_main entered");
 
-#[cfg(target_os = "android")]
-#[no_mangle]
+    // Write to a file that is always writable
+    let _ = std::fs::write("/sdcard/aix_startup.txt", "entered android_main\n");
 
-#[cfg(target_os = "android")]
-#[no_mangle]
-fn android_main(app: android_activity::AndroidApp) {
-    use android_activity::AndroidApp;
-    use std::fs;
-    use std::io::Write;
+    // Panic hook writes to logcat and /sdcard/aix_crash.log
+    std::panic::set_hook(Box::new(|info| {
+        let log_path = "/sdcard/aix_crash.log";
+        let _ = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log_path)
+            .and_then(|mut f| writeln!(f, "Panic at {:?}: {}", chrono::Local::now(), info));
+        log::error!("Panic: {}", info);
+    }));
 
-    let cache_dir = app.get_cache_dir().unwrap();
-    let marker_path = cache_dir.join("aix_startup.txt");
-    let _ = fs::write(&marker_path, format!("started at {:?}\n", std::time::SystemTime::now()));
+    // Create the assets directory (though it should be in the APK)
+    // Ensure welcome.txt exists
+    let _ = std::fs::create_dir_all("/data/local/tmp/assets");
+    // In case include_str fails, we have a fallback inside render_welcome.
 
-    std::thread::sleep(std::time::Duration::from_secs(5));
+    let options = eframe::NativeOptions::default();
+    eframe::run_native(
+        "AIX Ultra",
+        options,
+        Box::new(|cc| Ok(Box::new(AixApp::new(cc)))),
+    ).unwrap();
 }
