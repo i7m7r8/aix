@@ -1,4 +1,4 @@
-//! AIX Ultra – Full‑featured Phase 2 with standard entry point.
+//! AIX Ultra – Full‑featured Phase 2 with correct entry point.
 
 #![cfg_attr(target_os = "android", allow(unused_imports))]
 
@@ -1227,26 +1227,30 @@ impl eframe::App for AixApp {
     }
 }
 
-// Standard Android entry point – only one definition
+// Correct Android entry point using the macro
 #[cfg(target_os = "android")]
-#[no_mangle]
-fn android_main(_app: android_activity::AndroidApp) {
-    android_logger::init_once(android_logger::Config::default().with_tag("AIX").with_max_level(log::LevelFilter::Info));
-    info!("android_main entered");
-    let _ = std::fs::write("/sdcard/aix_startup.txt", "entered android_main\n");
-    std::panic::set_hook(Box::new(|info| {
-        let log_path = "/sdcard/aix_crash.log";
-        let _ = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(log_path)
-            .and_then(|mut f| writeln!(f, "Panic at {:?}: {}", chrono::Local::now(), info));
-        log::error!("Panic: {}", info);
-    }));
-    let options = eframe::NativeOptions::default();
-    eframe::run_native(
-        "AIX Ultra",
-        options,
-        Box::new(|cc| Ok(Box::new(AixApp::new(cc)))),
-    ).unwrap();
-}
+use android_activity::android_main;
+
+#[cfg(target_os = "android")]
+android_main!(
+    fn android_main(app: android_activity::AndroidApp) {
+        android_logger::init_once(android_logger::Config::default().with_tag("AIX").with_max_level(log::LevelFilter::Info));
+        info!("android_main entered");
+        let _ = std::fs::write("/sdcard/aix_startup.txt", "entered android_main\n");
+        std::panic::set_hook(Box::new(|info| {
+            let log_path = "/sdcard/aix_crash.log";
+            let _ = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(log_path)
+                .and_then(|mut f| writeln!(f, "Panic at {:?}: {}", chrono::Local::now(), info));
+            log::error!("Panic: {}", info);
+        }));
+        let options = eframe::NativeOptions::default();
+        eframe::run_native(
+            "AIX Ultra",
+            options,
+            Box::new(|cc| Ok(Box::new(AixApp::new(cc)))),
+        ).unwrap();
+    }
+);
