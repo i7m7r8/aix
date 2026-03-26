@@ -25,11 +25,17 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Android SDK (with NDK)
+      - name: Setup Android SDK (with NDK and platform 30)
         uses: android-actions/setup-android@v3
         with:
           ndk: true
           ndk-version: '26.1.10909125'
+          packages: >-
+            tools
+            platform-tools
+            platforms;android-30
+            build-tools;30.0.3
+          accept-android-sdk-licenses: true
 
       - name: Decode Keystore
         run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > keystore.jks
