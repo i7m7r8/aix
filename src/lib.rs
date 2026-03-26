@@ -8,6 +8,9 @@ use std::os::raw::c_int;
 use jni::objects::{JClass, JString};
 use jni::JNIEnv;
 
+// The runtime we're using with rustls
+type TorClientRuntime = arti_client::TorRustlsRuntime;
+
 #[derive(Clone, Serialize, Deserialize, Default, Debug)]
 pub struct SniConfig {
     pub enabled: bool,
@@ -18,7 +21,7 @@ pub struct SniConfig {
 
 #[derive(Default)]
 pub struct TorManager {
-    client: Arc<Mutex<Option<TorClient<arti_client::tor_rtcompat::TokioNativeTlsRuntime>>>>,
+    client: Arc<Mutex<Option<TorClient<TorClientRuntime>>>>,
     sni_config: Arc<Mutex<SniConfig>>,
 }
 
@@ -33,15 +36,10 @@ impl TorManager {
     }
 
     pub async fn start_tor(&self) -> Result<String> {
-        let config_builder = TorClientConfig::builder();
-
-        // For now, ignore bridges – we'll add them later
-        let config = config_builder.build()?;
+        let config = TorClientConfig::builder().build()?;
         let tor_client = TorClient::create_bootstrapped(config).await?;
-
         let mut guard = self.client.lock().await;
         *guard = Some(tor_client);
-
         let sni = self.sni_config.lock().await;
         Ok(format!("✅ Tor started with SNI: {}", sni.custom_sni))
     }
@@ -66,7 +64,6 @@ impl TorManager {
 pub static TOR_MANAGER: once_cell::sync::Lazy<Arc<TorManager>> = 
     once_cell::sync::Lazy::new(|| Arc::new(TorManager::new()));
 
-// JNI implementation for VPN service
 #[no_mangle]
 pub extern "C" fn Java_com_i7m7r8_aix_TorVpnService_startTorWithTun(
     env: JNIEnv,
@@ -75,8 +72,9 @@ pub extern "C" fn Java_com_i7m7r8_aix_TorVpnService_startTorWithTun(
     sni: JString,
     bridge: JString,
 ) {
-    let sni_str: String = env.get_string(sni).unwrap().into();
-    let bridge_str: String = env.get_string(bridge).unwrap().into();
+    // Convert Java strings to Rust strings – note the borrow
+    let sni_str: String = env.get_string(&sni).unwrap().into();
+    let bridge_str: String = env.get_string(&bridge).unwrap().into();
 
     let cfg = SniConfig {
         enabled: true,
