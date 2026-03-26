@@ -26,7 +26,6 @@ struct AixVpn {
     log: String,
     is_connected: bool,
     ui_tx: Option<mpsc::UnboundedSender<UIMessage>>,
-    // For receiving messages from the async task
     ui_rx: Option<mpsc::UnboundedReceiver<UIMessage>>,
 }
 
@@ -135,7 +134,6 @@ impl iced::Application for AixVpn {
     }
 
     fn subscription(&self) -> iced::Subscription<Message> {
-        // Poll the channel for UI events
         let rx = self.ui_rx.as_ref().unwrap().clone();
         iced::subscription::unfold(rx, |mut rx| async {
             rx.recv().await.map(|msg| (Message::UIEvent(msg), rx))
@@ -243,14 +241,12 @@ impl iced::Application for AixVpn {
 }
 
 pub fn main() -> iced::Result {
-    // Initialize Android logging
     android_logger::init_once(
         android_logger::Config::default()
             .with_max_level(log::LevelFilter::Info)
             .with_tag("AIX"),
     );
 
-    // Run Iced application
     iced::application("AIX VPN", AixVpn::update, AixVpn::view)
         .subscription(AixVpn::subscription)
         .theme(|_| iced::Theme::Dark)

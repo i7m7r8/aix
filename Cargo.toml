@@ -33,11 +33,5 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 android_logger = "0.13"
 log = "0.4"
 
-# Iced 0.14 – use tokio runtime, wgpu renderer
+# Iced 0.14 – with wgpu for Android (includes winit and android-activity)
 iced = { version = "0.14", features = ["tokio", "wgpu"] }
-iced_winit = "0.14"
-
-# Android glue (winit uses this internally, but we need it explicitly for JNI context)
-android-activity = "0.5"
-ndk = "0.9"
-ndk-context = "0.1"
