@@ -16,10 +16,8 @@ jobs:
         with:
           targets: aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
 
-      - name: Install tools
-        run: |
-          cargo install cargo-ndk --locked
-          cargo install dioxus-cli --version 0.6.2 --locked
+      - name: Install cargo-apk
+        run: cargo install cargo-apk
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -36,30 +34,22 @@ jobs:
       - name: Decode Keystore
         run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > keystore.jks
 
-      - name: Build Release APKs
-        run: |
-          dx build --platform android --release --target aarch64-linux-android
-          dx build --platform android --release --target armv7-linux-androideabi
-          dx build --platform android --release --target x86_64-linux-android
-          dx build --platform android --release --universal
+      - name: Build APK
+        run: cargo apk build --release --target aarch64-linux-android
 
-      - name: Sign APKs
+      - name: Sign APK
         run: |
           BUILD_TOOLS=$(ls $ANDROID_HOME/build-tools | sort -V | tail -n1)
           APKSIGNER="$ANDROID_HOME/build-tools/$BUILD_TOOLS/apksigner"
-          for apk in target/dx/aix/release/android/**/*.apk; do
-            if [ -f "$apk" ]; then
-              echo "Signing $(basename $apk)"
-              $APKSIGNER sign --ks keystore.jks \
-                --ks-pass pass:${{ secrets.KEYSTORE_PASSWORD }} \
-                --ks-key-alias ${{ secrets.KEYSTORE_ALIAS }} \
-                --out "signed-$(basename $apk)" "$apk"
-            fi
-          done
+          APK_PATH="target/android-artifacts/release/apk/aix-release-unsigned.apk"
+          $APKSIGNER sign --ks keystore.jks \
+            --ks-pass pass:${{ secrets.KEYSTORE_PASSWORD }} \
+            --ks-key-alias ${{ secrets.KEYSTORE_ALIAS }} \
+            --out "signed-aix.apk" "$APK_PATH"
 
-      - name: Upload Artifacts
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: aix-signed-apks
-          path: signed-*.apk
+          name: aix-signed-apk
+          path: signed-aix.apk
           retention-days: 30
