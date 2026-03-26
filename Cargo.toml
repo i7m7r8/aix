@@ -23,7 +23,7 @@ arti-client = { version = "0.40", features = [
     "tokio",
     "bridge-client",
     "pt-client",
-    "native-tls",
+    "rustls",
 ] }
 
 # JNI
