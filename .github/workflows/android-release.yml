@@ -63,23 +63,15 @@ jobs:
       - name: Decode Keystore
         run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > keystore.jks
 
-      - name: Build APK
+      - name: Build and Sign APK
         run: cargo apk build --release --target ${{ matrix.target }}
         env:
           ANDROID_NDK_ROOT: ${{ env.ANDROID_NDK_ROOT }}
 
-      - name: Rename & sign APK
+      - name: Rename APK
         run: |
           mkdir -p out
-          cp target/release/apk/aix.apk out/aix-${{ matrix.target }}.apk
-          BUILD_TOOLS=$(ls $ANDROID_HOME/build-tools | sort -V | tail -n1)
-          $ANDROID_HOME/build-tools/$BUILD_TOOLS/apksigner sign \
-            --ks keystore.jks \
-            --ks-pass pass:${{ secrets.KEYSTORE_PASSWORD }} \
-            --ks-key-alias ${{ secrets.KEY_ALIAS }} \
-            --key-pass pass:${{ secrets.KEY_PASSWORD }} \
-            --out out/aix-${{ matrix.target }}-signed.apk \
-            out/aix-${{ matrix.target }}.apk
+          cp target/release/apk/aix.apk out/aix-${{ matrix.target }}-signed.apk
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
