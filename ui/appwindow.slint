@@ -31,7 +31,7 @@ component PillButton inherits Rectangle {
     callback clicked;
 
     height: small ? 36px : 48px;
-    border-radius: 100%;   // pill shape
+    border-radius: height / 2;    // pill shape
     background: btn-color;
 
     animate background { duration: 150ms; }
@@ -87,14 +87,15 @@ component Chip inherits Rectangle {
     background: Theme.surface;
     border-width: 1px;
     border-color: Theme.border;
-    padding: 8px;
-
-    Text {
-        text: label;
-        color: Theme.muted;
-        font-size: 12px;
-        horizontal-alignment: center;
-        vertical-alignment: center;
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: center;
+        Text {
+            text: label;
+            color: Theme.muted;
+            font-size: 12px;
+            horizontal-alignment: center;
+        }
     }
 
     touch := TouchArea { clicked => { root.clicked(); } }
@@ -571,14 +572,15 @@ export component AppWindow inherits Window {
                         border-width: 1px;
                         border-color: Theme.border;
 
-                        Text {
-                            text: log-text == "" ? "No logs yet..." : log-text;
-                            color: Theme.muted;
-                            font-size: 12px;
+                        VerticalLayout {
                             padding: 14px;
-                            wrap: word-wrap;
-                            overflow: clip;
-                            font-family: "monospace";
+                            Text {
+                                text: log-text == "" ? "No logs yet..." : log-text;
+                                color: Theme.muted;
+                                font-size: 12px;
+                                wrap: word-wrap;
+                                font-family: "monospace";
+                            }
                         }
                     }
                 }
