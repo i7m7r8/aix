@@ -31,7 +31,7 @@ component PillButton inherits Rectangle {
     callback clicked;
 
     height: small ? 36px : 48px;
-    border-radius: height / 2;
+    border-radius: 100%;   // pill shape
     background: btn-color;
 
     animate background { duration: 150ms; }
@@ -149,8 +149,6 @@ export component AppWindow inherits Window {
         Rectangle {
             height: 64px;
             background: Theme.surface;
-            border-bottom-width: 1px;
-            border-color: Theme.border;
 
             HorizontalLayout {
                 padding-left: 20px;
@@ -195,6 +193,14 @@ export component AppWindow inherits Window {
                         vertical-alignment: center;
                     }
                 }
+            }
+
+            // bottom border
+            Rectangle {
+                height: 1px;
+                background: Theme.border;
+                y: parent.height - 1px;
+                width: 100%;
             }
         }
 
