@@ -1,6 +1,7 @@
 #![cfg(target_os = "android")]
 
 use arti_client::{TorClient, TorClientConfig};
+use arti_client::config::TorClientConfigBuilder;
 use tor_rtcompat::PreferredRuntime;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -93,37 +94,28 @@ impl TorManager {
         fs::create_dir_all(&cache)?;
         fs::create_dir_all(&state)?;
 
-        // Build config via TOML — the stable way to configure arti 0.37
         let toml_str = if cfg.bridge_line.trim().is_empty() {
             format!(
-                r#"
-[storage]
-cache_dir = "{}"
-state_dir = "{}"
-"#,
+                "[storage]\ncache_dir = \"{}\"\nstate_dir = \"{}\"\n",
                 cache.display(), state.display()
             )
         } else {
-            // Escape backslashes for TOML
             let bridge_escaped = cfg.bridge_line.replace('\\', "\\\\").replace('"', "\\\"");
             format!(
-                r#"
-[storage]
-cache_dir = "{}"
-state_dir = "{}"
-
-[bridges]
-enabled = true
-bridges = ["{}"]
-"#,
+                "[storage]\ncache_dir = \"{}\"\nstate_dir = \"{}\"\n\n[bridges]\nenabled = true\nbridges = [\"{}\"]\n",
                 cache.display(), state.display(), bridge_escaped
             )
         };
 
-        self.push_log(format!("Bridge: {}", if cfg.bridge_line.is_empty() { "none (direct)" } else { &cfg.bridge_line })).await;
+        self.push_log(format!("Bridge: {}",
+            if cfg.bridge_line.is_empty() { "none (direct)" } else { &cfg.bridge_line }
+        )).await;
 
-        let tor_cfg: TorClientConfig = toml::from_str(&toml_str)
+        // Deserialize into Builder (Builder implements Deserialize, TorClientConfig does NOT)
+        let builder: TorClientConfigBuilder = toml::from_str(&toml_str)
             .map_err(|e| anyhow::anyhow!("Config parse error: {e}"))?;
+        let tor_cfg: TorClientConfig = builder.build()
+            .map_err(|e| anyhow::anyhow!("Config build error: {e}"))?;
 
         self.push_log("⏳ Bootstrapping Tor...".into()).await;
         let client: TorClient<_> = TorClient::create_bootstrapped(tor_cfg).await?;
@@ -259,7 +251,6 @@ fn android_main(app: slint::android::AndroidApp) {
             }
         });
     }
-
     {
         let ui_weak = ui_weak.clone();
         ui.on_bridge_preset_selected(move |idx| {
@@ -271,7 +262,6 @@ fn android_main(app: slint::android::AndroidApp) {
             }
         });
     }
-
     {
         let ui_weak = ui_weak.clone();
         ui.on_fetch_bridge(move || {
@@ -294,7 +284,6 @@ fn android_main(app: slint::android::AndroidApp) {
             });
         });
     }
-
     {
         let ui_weak = ui_weak.clone();
         ui.on_connect(move || {
@@ -330,7 +319,6 @@ fn android_main(app: slint::android::AndroidApp) {
             });
         });
     }
-
     {
         let ui_weak = ui_weak.clone();
         ui.on_disconnect(move || {
@@ -352,7 +340,6 @@ fn android_main(app: slint::android::AndroidApp) {
             });
         });
     }
-
     {
         let ui_weak = ui_weak.clone();
         ui.on_refresh_logs(move || {
