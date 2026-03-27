@@ -184,14 +184,16 @@ export component AppWindow inherits Window {
                         Rectangle {
                             background: #0d0d14;
                             border-radius: 6px;
-                            // Remove padding on Text, add margin on the rectangle instead
-                            Text {
-                                text: log_text;
-                                font-size: 10px;
-                                color: #99ffcc;
-                                wrap: word-wrap;
-                                font-family: "monospace";
-                                margin: 8px;
+                            // Use VerticalBox for padding instead of margin on Text
+                            VerticalBox {
+                                padding: 8px;
+                                Text {
+                                    text: log_text;
+                                    font-size: 10px;
+                                    color: #99ffcc;
+                                    wrap: word-wrap;
+                                    font-family: "monospace";
+                                }
                             }
                         }
                     }
