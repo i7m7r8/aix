@@ -49,8 +49,6 @@ pub struct TorManager {
     client: Arc<Mutex<Option<TorClient<PreferredRuntime>>>>,
     config: Arc<Mutex<SniConfig>>,
     log_buf: Arc<Mutex<Vec<String>>>,
-    bytes_in: Arc<Mutex<u64>>,
-    bytes_out: Arc<Mutex<u64>>,
 }
 
 impl TorManager {
@@ -67,71 +65,68 @@ impl TorManager {
         self.log_buf.lock().await.join("\n")
     }
 
-    async fn save_config_to_disk(&self, cfg: &SniConfig) -> Result<()> {
-        let json = serde_json::to_string_pretty(cfg)?;
-        fs::write(data_dir().join("config.json"), json)?;
-        self.push_log("Config saved".into()).await;
+    async fn save_config(&self, cfg: &SniConfig) -> Result<()> {
+        fs::write(data_dir().join("config.json"), serde_json::to_string_pretty(cfg)?)?;
         Ok(())
     }
 
-    async fn load_config_from_disk(&self) -> Result<SniConfig> {
+    async fn load_config(&self) -> Result<SniConfig> {
         let p = data_dir().join("config.json");
         if p.exists() {
-            let cfg: SniConfig = serde_json::from_str(&fs::read_to_string(p)?)?;
-            self.push_log("Loaded saved config".into()).await;
-            Ok(cfg)
+            Ok(serde_json::from_str(&fs::read_to_string(p)?)?)
         } else {
-            self.push_log("Using default config".into()).await;
             Ok(SniConfig::default())
         }
     }
 
     pub async fn update_config(&self, new_cfg: SniConfig) -> Result<()> {
-        let mut c = self.config.lock().await;
-        *c = new_cfg.clone();
-        self.save_config_to_disk(&new_cfg).await?;
-        Ok(())
+        *self.config.lock().await = new_cfg.clone();
+        self.save_config(&new_cfg).await
     }
 
     pub async fn start_tor(&self) -> Result<String> {
         let cfg = self.config.lock().await.clone();
         self.push_log("⏳ Building Tor config...".into()).await;
 
-        let mut config_builder = TorClientConfig::builder();
+        let cache = data_dir().join("tor_cache");
+        let state = data_dir().join("tor_state");
+        fs::create_dir_all(&cache)?;
+        fs::create_dir_all(&state)?;
 
-        if !cfg.bridge_line.trim().is_empty() {
-            self.push_log(format!("Bridge: {}", cfg.bridge_line)).await;
-            // Set storage dirs so arti can persist state
-            let cache = data_dir().join("tor_cache");
-            let data  = data_dir().join("tor_data");
-            fs::create_dir_all(&cache)?;
-            fs::create_dir_all(&data)?;
-            config_builder
-                .storage()
-                .cache_dir(tor_config::CfgPath::new_literal(cache))
-                .state_dir(tor_config::CfgPath::new_literal(data));
-
-            // bridges: parse line and push into builder
-            let bridge: arti_client::config::BridgeConfigBuilder =
-                cfg.bridge_line.trim().parse()
-                    .map_err(|e| anyhow::anyhow!("Bad bridge line: {e}"))?;
-            config_builder.bridges().bridges().push(bridge);
-            config_builder.bridges().enabled(true.into());
+        // Build config via TOML — the stable way to configure arti 0.37
+        let toml_str = if cfg.bridge_line.trim().is_empty() {
+            format!(
+                r#"
+[storage]
+cache_dir = "{}"
+state_dir = "{}"
+"#,
+                cache.display(), state.display()
+            )
         } else {
-            self.push_log("No bridge – direct connect".into()).await;
-            let cache = data_dir().join("tor_cache");
-            let data  = data_dir().join("tor_data");
-            fs::create_dir_all(&cache)?;
-            fs::create_dir_all(&data)?;
-            config_builder
-                .storage()
-                .cache_dir(tor_config::CfgPath::new_literal(cache))
-                .state_dir(tor_config::CfgPath::new_literal(data));
-        }
+            // Escape backslashes for TOML
+            let bridge_escaped = cfg.bridge_line.replace('\\', "\\\\").replace('"', "\\\"");
+            format!(
+                r#"
+[storage]
+cache_dir = "{}"
+state_dir = "{}"
+
+[bridges]
+enabled = true
+bridges = ["{}"]
+"#,
+                cache.display(), state.display(), bridge_escaped
+            )
+        };
+
+        self.push_log(format!("Bridge: {}", if cfg.bridge_line.is_empty() { "none (direct)" } else { &cfg.bridge_line })).await;
+
+        let tor_cfg: TorClientConfig = toml::from_str(&toml_str)
+            .map_err(|e| anyhow::anyhow!("Config parse error: {e}"))?;
 
         self.push_log("⏳ Bootstrapping Tor...".into()).await;
-        let config = config_builder.build()?;
-        let client: TorClient<_> = TorClient::create_bootstrapped(config).await?;
+        let client: TorClient<_> = TorClient::create_bootstrapped(tor_cfg).await?;
         *self.client.lock().await = Some(client);
 
         let msg = format!("✅ Connected | SNI: {}", cfg.custom_sni);
@@ -211,10 +206,7 @@ fn android_main(app: slint::android::AndroidApp) {
             .with_tag("AIX"),
     );
 
-    // FIX: correct API for data dir
-    let data_dir_path: PathBuf = app
-        .internal_data_path()
-        .expect("No internal data path");
+    let data_dir_path: PathBuf = app.internal_data_path().expect("No internal data path");
     APP_DATA_DIR.set(data_dir_path).unwrap();
 
     slint::android::init(app).unwrap();
@@ -222,14 +214,13 @@ fn android_main(app: slint::android::AndroidApp) {
     let ui = AppWindow::new().unwrap();
     let ui_weak = ui.as_weak();
 
-    // Load config on startup
     {
         let tm = TOR_MANAGER.clone();
         let ui_weak2 = ui_weak.clone();
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async move {
-                let cfg = tm.load_config_from_disk().await.unwrap_or_default();
+                let cfg = tm.load_config().await.unwrap_or_default();
                 tm.update_config(cfg.clone()).await.ok();
                 let logs = tm.get_logs().await;
                 let _ = slint::invoke_from_event_loop(move || {
@@ -264,9 +255,7 @@ fn android_main(app: slint::android::AndroidApp) {
         let ui_weak = ui_weak.clone();
         ui.on_sni_preset_selected(move |idx| {
             if let Some((_, sni)) = sni_presets().get(idx as usize) {
-                if let Some(ui) = ui_weak.upgrade() {
-                    ui.set_sni_input((*sni).into());
-                }
+                if let Some(ui) = ui_weak.upgrade() { ui.set_sni_input((*sni).into()); }
             }
         });
     }
