@@ -1,5 +1,5 @@
 use arti_client::{TorClient, TorClientConfig};
-use arti_client::rt::TokioRustlsRuntime;
+use tor_rtcompat::PreferredRuntime;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use anyhow::Result;
@@ -19,7 +19,7 @@ pub struct SniConfig {
 
 #[derive(Default)]
 pub struct TorManager {
-    client: Arc<Mutex<Option<TorClient<TokioRustlsRuntime>>>>,
+    client: Arc<Mutex<Option<TorClient<PreferredRuntime>>>>,
     sni_config: Arc<Mutex<SniConfig>>,
 }
 
@@ -59,7 +59,7 @@ impl TorManager {
     }
 }
 
-pub static TOR_MANAGER: once_cell::sync::Lazy<Arc<TorManager>> = 
+pub static TOR_MANAGER: once_cell::sync::Lazy<Arc<TorManager>> =
     once_cell::sync::Lazy::new(|| Arc::new(TorManager::new()));
 
 #[no_mangle]
