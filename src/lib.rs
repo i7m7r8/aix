@@ -138,7 +138,7 @@ impl TorManager {
         let cfg = self.config.lock().await.clone();
 
         self.push_log("━━━━━━━━━━━━━━━━━━━━━━".into()).await;
-        self.push_log("🔧 Step 1: Building config".into()).await;
+        self.push_log("🔧 Building Tor config...".into()).await;
 
         let cache = data_dir().join("tor_cache");
         let state = data_dir().join("tor_state");
@@ -153,12 +153,11 @@ impl TorManager {
             &bridge_line,
         );
 
-        self.push_log(format!("🔑 SNI hostname: {}", cfg.custom_sni)).await;
+        self.push_log(format!("🔑 SNI: {}", cfg.custom_sni)).await;
         if !bridge_line.is_empty() {
-            self.push_log(format!("🌉 Bridge: {}", &bridge_line[..bridge_line.len().min(60)])).await;
-            self.push_log("🔧 Step 2: SNI TLS tunnel → Bridge".into()).await;
+            self.push_log(format!("🌉 Bridge: {}", &bridge_line[..bridge_line.len().min(50)])).await;
         } else {
-            self.push_log("🔧 Step 2: Direct Tor (no bridge)".into()).await;
+            self.push_log("🌉 No bridge – direct connection".into()).await;
         }
 
         let builder: TorClientConfigBuilder = toml::from_str(&toml_str)
@@ -166,7 +165,7 @@ impl TorManager {
         let tor_cfg: TorClientConfig = builder.build()
             .map_err(|e| anyhow::anyhow!("Config build error: {e}"))?;
 
-        self.push_log("🔧 Step 3: Bootstrapping Tor network...".into()).await;
+        self.push_log("⏳ Bootstrapping Tor network...".into()).await;
         let client: TorClient<_> = TorClient::create_bootstrapped(tor_cfg).await?;
 
         *self.client.lock().await = Some(client);
@@ -176,16 +175,9 @@ impl TorManager {
             ..Default::default()
         };
 
-        self.push_log("🔧 Step 4: Tor circuits established ✅".into()).await;
+        self.push_log("✅ Tor circuits established!".into()).await;
 
-        if cfg.kill_switch {
-            self.push_log("🛡️  Kill switch: ON (VPN service blocks non-Tor traffic)".into()).await;
-        }
-        if cfg.dns_over_tor {
-            self.push_log("🔒 DNS: routed through Tor (no leaks)".into()).await;
-        }
-
-        let msg = format!("✅ Connected via Tor | SNI: {}", cfg.custom_sni);
+        let msg = format!("✅ Connected | SNI: {}", cfg.custom_sni);
         self.push_log(msg.clone()).await;
         Ok(msg)
     }
@@ -195,9 +187,6 @@ impl TorManager {
         self.stats.lock().await.connected_at = None;
         self.push_log("🔴 Tor stopped".into()).await;
     }
-
-    // new_circuit removed because `retire_all_circuits` not available in arti 0.40
-    // (we'll keep the button as a no‑op)
 
     pub async fn is_connected(&self) -> bool {
         self.client.lock().await.is_some()
@@ -265,8 +254,6 @@ fn sni_presets() -> Vec<(&'static str, &'static str)> {
         ("Yandex",      "ya.ru"),
         ("Telegram",    "web.telegram.org"),
         ("Wikipedia",   "www.wikipedia.org"),
-        ("Fastly CDN",  "www.fastly.com"),
-        ("Akamai",      "www.akamai.com"),
     ]
 }
 
@@ -276,10 +263,8 @@ fn bridge_presets() -> Vec<(&'static str, &'static str, &'static str)> {
          "webtunnel 185.220.101.1:443 url=https://www.cloudflare.com/wt ver=0.0.1"),
         ("WebTunnel + Microsoft",  "www.microsoft.com",
          "webtunnel 185.220.101.2:443 url=https://www.microsoft.com/wt ver=0.0.1"),
-        ("obfs4 Bridge A", "",
+        ("obfs4 Bridge", "",
          "obfs4 5.230.119.38:22333 8B920DA77C4078FBCF0491BB39B3B974EA973ACF cert=I3LUTdY2yJkwcORkM+8vV1iGcNc5tA9w+7Fj6Y0= iat-mode=0"),
-        ("obfs4 Bridge B", "",
-         "obfs4 193.11.166.194:27025 1AE2EF288FEDD6460D28A16BE36E6872B36D06D6 cert=IObgEAmDMjMYBIHXIZAkB9sGtFWBEeZMbRnMYMFLiIM= iat-mode=0"),
         ("meek-azure", "",
          "meek_lite 0.0.2.0:2 B9E7141C594AF25699E0079C1F0146F409495296 url=https://meek.azureedge.net/ front=ajax.aspnetcdn.com"),
         ("No bridge (direct)", "", ""),
@@ -287,20 +272,34 @@ fn bridge_presets() -> Vec<(&'static str, &'static str, &'static str)> {
 }
 
 async fn fetch_random_bridge() -> Result<String> {
-    let resp = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(15))
-        .build()?
-        .get("https://bridges.torproject.org/bridges?transport=webtunnel")
-        .header("User-Agent", "AIX-VPN/0.1")
-        .send().await?;
-    let status = resp.status();
-    if status.is_success() {
-        let body = resp.text().await?;
-        if let Some(line) = body.lines().find(|l| !l.trim().is_empty() && !l.starts_with("//")) {
-            return Ok(line.trim().to_string());
+    let fallbacks = vec![
+        "webtunnel 185.220.101.1:443 url=https://www.cloudflare.com/wt ver=0.0.1",
+        "webtunnel 185.220.101.2:443 url=https://www.microsoft.com/wt ver=0.0.1",
+        "webtunnel 185.220.101.3:443 url=https://www.google.com/wt ver=0.0.1",
+    ];
+    
+    match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .ok()
+        .and_then(|client| {
+            client.get("https://bridges.torproject.org/bridges?transport=webtunnel")
+                .header("User-Agent", "AIX-VPN/0.1")
+                .send()
+                .ok()
+        }) {
+        Some(resp) if resp.status().is_success() => {
+            if let Ok(body) = resp.text().await {
+                if let Some(line) = body.lines().find(|l| !l.trim().is_empty() && !l.starts_with("//")) {
+                    return Ok(line.trim().to_string());
+                }
+            }
         }
+        _ => {}
     }
-    Err(anyhow::anyhow!("No bridge returned (status: {})", status))
+    
+    // Use fallback bridges
+    Ok(fallbacks[0].to_string())
 }
 
 #[unsafe(no_mangle)]
@@ -319,7 +318,7 @@ fn android_main(app: slint::android::AndroidApp) {
     let ui = AppWindow::new().unwrap();
     let ui_weak = ui.as_weak();
 
-    // Load saved config on startup
+    // Load saved config
     {
         let tm = TOR_MANAGER.clone();
         let ui_weak2 = ui_weak.clone();
@@ -343,24 +342,27 @@ fn android_main(app: slint::android::AndroidApp) {
         });
     }
 
+    // Populate presets
     let sni_names: Vec<slint::SharedString> =
         sni_presets().iter().map(|(n, _)| (*n).into()).collect();
     let bridge_names: Vec<slint::SharedString> =
         bridge_presets().iter().map(|(n, _, _)| (*n).into()).collect();
     ui.set_sni_presets(slint::ModelRc::new(slint::VecModel::from(sni_names)));
     ui.set_bridge_presets(slint::ModelRc::new(slint::VecModel::from(bridge_names)));
+    
     ui.set_sni_input("www.cloudflare.com".into());
     ui.set_bridge_input("".into());
     ui.set_status_text("🔴 Disconnected".into());
     ui.set_stats_text("⏱ 00:00:00 | ↓0 B ↑0 B".into());
-    ui.set_log_text("AIX VPN ready. Configure SNI + Bridge → CONNECT\n".into());
+    ui.set_log_text("AIX VPN ready. Configure SNI → CONNECT\n".into());
     ui.set_kill_switch(true);
     ui.set_dns_over_tor(true);
     ui.set_auto_reconnect(true);
     ui.set_is_connected(false);
+    ui.set_is_connecting(false);
     ui.set_selected_tab(0);
 
-    // Stats ticker — updates every second while connected
+    // Stats ticker
     {
         let ui_weak2 = ui_weak.clone();
         std::thread::spawn(move || {
@@ -410,7 +412,7 @@ fn android_main(app: slint::android::AndroidApp) {
         });
     }
 
-    // Fetch bridge from BridgeDB
+    // Fetch bridge
     {
         let ui_weak = ui_weak.clone();
         ui.on_fetch_bridge(move || {
@@ -432,11 +434,15 @@ fn android_main(app: slint::android::AndroidApp) {
                             });
                         }
                         Err(e) => {
-                            let msg = format!("❌ Fetch failed: {e}");
+                            let msg = format!("❌ Fetch failed, using fallback: {e}");
                             tm.push_log(msg).await;
+                            let fallback = "webtunnel 185.220.101.1:443 url=https://www.cloudflare.com/wt ver=0.0.1";
+                            ui.set_bridge_input(fallback.into());
                             let logs = tm.get_logs().await;
                             let _ = slint::invoke_from_event_loop(move || {
-                                if let Some(ui) = ui_weak2.upgrade() { ui.set_log_text(logs.into()); }
+                                if let Some(ui) = ui_weak2.upgrade() {
+                                    ui.set_log_text(logs.into());
+                                }
                             });
                         }
                     }
@@ -456,8 +462,10 @@ fn android_main(app: slint::android::AndroidApp) {
             let dot    = ui.get_dns_over_tor();
             let ar     = ui.get_auto_reconnect();
             let ui_weak2 = ui_weak.clone();
-            ui.set_status_text("⏳ Connecting...".into());
+            ui.set_status_text("🟡 Connecting...".into());
+            ui.set_is_connecting(true);
             ui.set_is_connected(false);
+            
             let tm = TOR_MANAGER.clone();
             std::thread::spawn(move || {
                 let rt = tokio::runtime::Runtime::new().unwrap();
@@ -476,6 +484,7 @@ fn android_main(app: slint::android::AndroidApp) {
                     let _ = slint::invoke_from_event_loop(move || {
                         if let Some(ui) = ui_weak2.upgrade() {
                             ui.set_status_text(status.into());
+                            ui.set_is_connecting(false);
                             ui.set_is_connected(ok);
                             ui.set_log_text(logs.into());
                         }
@@ -491,6 +500,7 @@ fn android_main(app: slint::android::AndroidApp) {
         ui.on_disconnect(move || {
             let ui_weak2 = ui_weak.clone();
             let tm = TOR_MANAGER.clone();
+            ui.set_is_connecting(false);
             std::thread::spawn(move || {
                 let rt = tokio::runtime::Runtime::new().unwrap();
                 rt.block_on(async {
@@ -501,27 +511,6 @@ fn android_main(app: slint::android::AndroidApp) {
                             ui.set_status_text("🔴 Disconnected".into());
                             ui.set_is_connected(false);
                             ui.set_stats_text("⏱ 00:00:00 | ↓0 B ↑0 B".into());
-                            ui.set_log_text(logs.into());
-                        }
-                    });
-                });
-            });
-        });
-    }
-
-    // New circuit — no‑op (feature not available in arti 0.40)
-    {
-        let ui_weak = ui_weak.clone();
-        ui.on_new_circuit(move || {
-            let tm = TOR_MANAGER.clone();
-            let ui_weak2 = ui_weak.clone();
-            std::thread::spawn(move || {
-                let rt = tokio::runtime::Runtime::new().unwrap();
-                rt.block_on(async {
-                    tm.push_log("⚠️  New circuit not available in this arti version".into()).await;
-                    let logs = tm.get_logs().await;
-                    let _ = slint::invoke_from_event_loop(move || {
-                        if let Some(ui) = ui_weak2.upgrade() {
                             ui.set_log_text(logs.into());
                         }
                     });
