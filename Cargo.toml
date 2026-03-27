@@ -35,7 +35,6 @@ chrono = { version = "0.4", features = ["serde"] }
 arti-client = { version = "0.40", default-features = false, features = ["tokio", "rustls", "bridge-client", "pt-client"] }
 tor-rtcompat = { version = "0.40", default-features = false, features = ["tokio", "rustls"] }
 tor-config = "0.40"
-# Force a single version of rusqlite with bundled feature
 rusqlite = { version = "0.38", features = ["bundled"] }
 jni = "0.21"
 android_logger = "0.13"

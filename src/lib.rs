@@ -22,6 +22,8 @@ fn data_dir() -> &'static PathBuf {
     APP_DATA_DIR.get().expect("APP_DATA_DIR not set")
 }
 
+// ── Config ─────────────────────────────────────────────────────────────────
+
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct SniConfig {
     pub enabled: bool,
@@ -46,6 +48,8 @@ impl Default for SniConfig {
         }
     }
 }
+
+// ── Stats ───────────────────────────────────────────────────────────────────
 
 #[derive(Default, Clone)]
 pub struct TrafficStats {
@@ -72,6 +76,8 @@ impl TrafficStats {
         else { format!("{:.2} MB", b as f64 / 1048576.0) }
     }
 }
+
+// ── Manager ─────────────────────────────────────────────────────────────────
 
 pub struct TorManager {
     client: Arc<Mutex<Option<TorClient<PreferredRuntime>>>>,
@@ -261,6 +267,8 @@ fn build_toml_config(cache: &str, state: &str, bridge_line: &str) -> String {
 pub static TOR_MANAGER: Lazy<Arc<TorManager>> =
     Lazy::new(|| Arc::new(TorManager::new()));
 
+// ── Presets ──────────────────────────────────────────────────────────────────
+
 fn sni_presets() -> Vec<(&'static str, &'static str)> {
     vec![
         ("Cloudflare",  "www.cloudflare.com"),
@@ -311,6 +319,8 @@ async fn fetch_random_bridge() -> Result<String> {
     Err(anyhow::anyhow!("No bridge returned (status: {})", status))
 }
 
+// ── android_main ─────────────────────────────────────────────────────────────
+
 #[unsafe(no_mangle)]
 fn android_main(app: slint::android::AndroidApp) {
     android_logger::init_once(
@@ -351,6 +361,7 @@ fn android_main(app: slint::android::AndroidApp) {
         });
     }
 
+    // Populate preset lists
     let sni_names: Vec<slint::SharedString> =
         sni_presets().iter().map(|(n, _)| (*n).into()).collect();
     let bridge_names: Vec<slint::SharedString> =
@@ -517,12 +528,12 @@ fn android_main(app: slint::android::AndroidApp) {
         });
     }
 
-    // New circuit — FIX: capture ui_weak before the closure
+    // New circuit
     {
         let ui_weak = ui_weak.clone();
         ui.on_new_circuit(move || {
-            let tm = TOR_MANAGER.clone();
             let ui_weak2 = ui_weak.clone();
+            let tm = TOR_MANAGER.clone();
             std::thread::spawn(move || {
                 let rt = tokio::runtime::Runtime::new().unwrap();
                 rt.block_on(async {
@@ -574,6 +585,8 @@ fn android_main(app: slint::android::AndroidApp) {
 
     ui.run().unwrap();
 }
+
+// ── JNI bridge for TorVpnService ─────────────────────────────────────────────
 
 #[no_mangle]
 pub extern "C" fn Java_com_i7m7r8_aix_TorVpnService_startTorWithTun(
