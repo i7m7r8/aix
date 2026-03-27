@@ -34,7 +34,7 @@ chrono = { version = "0.4", features = ["serde"] }
 arti-client = { version = "0.25", default-features = false, features = ["tokio", "rustls", "pt-client", "bridge-client"] }
 tor-rtcompat = { version = "0.25", default-features = false, features = ["tokio", "rustls"] }
 tor-config = "0.25"
-rusqlite = { version = "0.38", features = ["bundled"] }
+rusqlite = { version = "0.32.1", features = ["bundled"] }
 jni = "0.21"
 tracing = "0.1"
 android_logger = "0.13"
@@ -43,6 +43,3 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 
 [build-dependencies]
 slint-build = "=1.15.1"
-
-[patch.crates-io]
-rusqlite = { version = "0.38", features = ["bundled"] }
