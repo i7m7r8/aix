@@ -608,6 +608,7 @@ pub extern "C" fn Java_com_i7m7r8_aix_TorVpnService_startTorWithTun(
                 log::error!("Tor start failed: {e}"); return;
             }
             log::info!("TUN fd={tun_fd} active — all traffic routed through Tor");
+            // TODO: Implement packet forwarding (read from TUN, write to Tor's SOCKS)
             loop { tokio::time::sleep(tokio::time::Duration::from_secs(3600)).await; }
         });
     });

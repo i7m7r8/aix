@@ -86,9 +86,76 @@ export component AppWindow inherits Window {
             vertical-stretch: 1;
             current-index: selected_tab;
 
-            // ── Tab 1: Connect ──────────────────────────────────────────
+            // ── Tab 1: Home (Connect / Disconnect) ──────────────────────────
             Tab {
-                title: "🔒 Connect";
+                title: "🔒 Home";
+                ScrollView {
+                    VerticalBox {
+                        padding: 14px;
+                        spacing: 10px;
+
+                        // Big status orb (simulated)
+                        Rectangle {
+                            height: 100px;
+                            alignment: center;
+                            HorizontalBox {
+                                alignment: center;
+                                spacing: 10px;
+                                Rectangle {
+                                    width: 32px;
+                                    height: 32px;
+                                    border-radius: 16px;
+                                    background: is_connected ? #44ff44 : #ff4444;
+                                }
+                                Text {
+                                    text: is_connected ? "CONNECTED" : "DISCONNECTED";
+                                    font-size: 18px;
+                                    font-weight: 700;
+                                    color: is_connected ? #44ff44 : #ff4444;
+                                }
+                            }
+                        }
+
+                        // Active config summary
+                        GroupBox {
+                            title: "Active Configuration";
+                            VerticalBox {
+                                spacing: 4px;
+                                Text { text: "SNI: " + sni_input; font-size: 12px; color: #ccccff; }
+                                Text { text: "Bridge: " + (bridge_input != "" ? bridge_input : "none"); font-size: 12px; color: #ccccff; }
+                                Text { text: "Kill Switch: " + (kill_switch ? "ON" : "OFF"); font-size: 12px; color: #ccccff; }
+                                Text { text: "DNS over Tor: " + (dns_over_tor ? "ON" : "OFF"); font-size: 12px; color: #ccccff; }
+                                Text { text: "Auto‑reconnect: " + (auto_reconnect ? "ON" : "OFF"); font-size: 12px; color: #ccccff; }
+                            }
+                        }
+
+                        Rectangle { vertical-stretch: 1; }
+
+                        if !is_connected : Button {
+                            text: "⚡ CONNECT";
+                            primary: true;
+                            height: 48px;
+                            clicked => { root.connect(); }
+                        }
+                        if is_connected : VerticalBox {
+                            spacing: 8px;
+                            Button {
+                                text: "🔴 DISCONNECT";
+                                height: 48px;
+                                clicked => { root.disconnect(); }
+                            }
+                            Button {
+                                text: "♻️  New Circuit";
+                                clicked => { root.new_circuit(); }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── Tab 2: Configuration (SNI, Bridge, Options) ──────────────────
+            Tab {
+                title: "⚙️ Config";
                 ScrollView {
                     VerticalBox {
                         padding: 14px;
@@ -143,32 +210,11 @@ export component AppWindow inherits Window {
                                 CheckBox { text: "🔄 Auto-reconnect"; checked <=> auto_reconnect; }
                             }
                         }
-
-                        Rectangle { vertical-stretch: 1; }
-
-                        if !is_connected : Button {
-                            text: "⚡ CONNECT";
-                            primary: true;
-                            height: 48px;
-                            clicked => { root.connect(); }
-                        }
-                        if is_connected : VerticalBox {
-                            spacing: 8px;
-                            Button {
-                                text: "🔴 DISCONNECT";
-                                height: 48px;
-                                clicked => { root.disconnect(); }
-                            }
-                            Button {
-                                text: "♻️  New Circuit";
-                                clicked => { root.new_circuit(); }
-                            }
-                        }
                     }
                 }
             }
 
-            // ── Tab 2: Logs ─────────────────────────────────────────────
+            // ── Tab 3: Logs ─────────────────────────────────────────────
             Tab {
                 title: "📋 Logs";
                 VerticalBox {
@@ -199,7 +245,7 @@ export component AppWindow inherits Window {
                 }
             }
 
-            // ── Tab 3: About ────────────────────────────────────────────
+            // ── Tab 4: About ────────────────────────────────────────────
             Tab {
                 title: "ℹ️  About";
                 ScrollView {
