@@ -15,7 +15,7 @@ min_sdk_version = 23
 target_sdk_version = 30
 
 [package.metadata.android.signing.release]
-store_file = "keystore.jks"
+path = "keystore.jks"
 store_password = "${KEYSTORE_PASSWORD}"
 key_alias = "${KEY_ALIAS}"
 key_password = "${KEYSTORE_PASSWORD}"
