@@ -13,7 +13,6 @@ use std::fs;
 use jni::objects::{JClass, JString};
 use jni::JNIEnv;
 use std::os::raw::c_int;
-use android_activity::AndroidApp;
 
 slint::include_modules!();
 
@@ -203,8 +202,6 @@ fn bridge_presets() -> Vec<(&'static str, &'static str, &'static str)> {
 
 // Fetch a random bridge from Tor's BridgeDB (WebTunnel bridges)
 async fn fetch_random_bridge() -> Result<String> {
-    // We'll use a simple approach: fetch a JSON list from BridgeDB's HTTPS URL.
-    // This is a public endpoint that returns a random bridge line.
     let url = "https://bridges.torproject.org/bridges?transport=webtunnel";
     let response = reqwest::Client::new()
         .get(url)
@@ -213,8 +210,6 @@ async fn fetch_random_bridge() -> Result<String> {
         .await?;
     if response.status().is_success() {
         let body = response.text().await?;
-        // The response is plain text containing a bridge line.
-        // Sometimes it includes multiple lines; take the first non-empty one.
         let bridge = body.lines()
             .find(|line| !line.trim().is_empty())
             .unwrap_or(&body)
@@ -228,7 +223,7 @@ async fn fetch_random_bridge() -> Result<String> {
 
 // Android entry point
 #[unsafe(no_mangle)]
-fn android_main(app: AndroidApp) {
+fn android_main(app: slint::android::AndroidApp) {
     android_logger::init_once(
         android_logger::Config::default()
             .with_max_level(log::LevelFilter::Info)
@@ -316,7 +311,6 @@ fn android_main(app: AndroidApp) {
         let ui_weak = ui_weak.clone();
         ui.on_fetch_bridge(move || {
             let ui_weak2 = ui_weak.clone();
-            let tm = TOR_MANAGER.clone();
             std::thread::spawn(move || {
                 let rt = tokio::runtime::Runtime::new().unwrap();
                 rt.block_on(async {
