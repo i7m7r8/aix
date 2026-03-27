@@ -14,6 +14,12 @@ build_targets = ["aarch64-linux-android"]
 min_sdk_version = 23
 target_sdk_version = 30
 
+[package.metadata.android.signing.release]
+path = "keystore.jks"
+keystore_password = "aix123"
+key_alias = "aix"
+key_password = "aix123"
+
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread"] }
 anyhow = "1.0"
