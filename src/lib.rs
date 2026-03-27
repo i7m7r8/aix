@@ -400,12 +400,13 @@ fn android_main(app: slint::android::AndroidApp) {
         });
     }
 
-    // SNI preset selected (now receives string)
+    // SNI preset selected
     {
         let ui_weak = ui_weak.clone();
         ui.on_sni_preset_selected(move |preset_name| {
             let presets = sni_presets();
-            if let Some((_, sni)) = presets.iter().find(|(n, _)| *n == preset_name) {
+            // FIX: compare by swapping sides to use SharedString's PartialEq<&str>
+            if let Some((_, sni)) = presets.iter().find(|(n, _)| preset_name == *n) {
                 if let Some(ui) = ui_weak.upgrade() {
                     ui.set_sni_input((*sni).into());
                 }
@@ -413,12 +414,13 @@ fn android_main(app: slint::android::AndroidApp) {
         });
     }
 
-    // Bridge preset selected (now receives string)
+    // Bridge preset selected
     {
         let ui_weak = ui_weak.clone();
         ui.on_bridge_preset_selected(move |preset_name| {
             let presets = bridge_presets();
-            if let Some((_, sni, bridge)) = presets.iter().find(|(n, _, _)| *n == preset_name) {
+            // FIX: swap sides
+            if let Some((_, sni, bridge)) = presets.iter().find(|(n, _, _)| preset_name == *n) {
                 if let Some(ui) = ui_weak.upgrade() {
                     if !sni.is_empty() { ui.set_sni_input((*sni).into()); }
                     ui.set_bridge_input((*bridge).into());
