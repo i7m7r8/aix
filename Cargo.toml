@@ -14,12 +14,6 @@ build_targets = ["aarch64-linux-android"]
 min_sdk_version = 23
 target_sdk_version = 30
 
-[package.metadata.android.signing.release]
-path = "keystore.jks"
-keystore_password = "${KEYSTORE_PASSWORD}"
-key_alias = "${KEY_ALIAS}"
-key_password = "${KEYSTORE_PASSWORD}"
-
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread"] }
 anyhow = "1.0"
