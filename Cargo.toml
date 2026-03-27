@@ -19,3 +19,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 android_logger = "0.13"
 log = "0.4"
+
+# Force bundled sqlite3 for Android NDK
+[patch.crates-io]
+rusqlite = { version = "0.38", features = ["bundled"] }
