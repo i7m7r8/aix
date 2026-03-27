@@ -138,6 +138,7 @@ export component AppWindow inherits Window {
     callback connect();
     callback disconnect();
     callback refresh-logs();
+    callback fetch-bridge();
     callback sni-preset-selected(int);
     callback bridge-preset-selected(int);
 
@@ -470,6 +471,27 @@ export component AppWindow inherits Window {
                                         background: Theme.accent.with-alpha(0.08);
                                     }
                                 ]
+                            }
+                        }
+                    }
+
+                    // Fetch Bridge button
+                    Card {
+                        height: 80px;
+                        VerticalLayout {
+                            padding: 16px;
+                            spacing: 8px;
+                            SectionLabel { text: "FETCH A RANDOM BRIDGE"; }
+                            PillButton {
+                                label: "🔄 Fetch Bridge";
+                                btn-color: Theme.accent;
+                                small: true;
+                                clicked => { fetch-bridge(); }
+                            }
+                            Text {
+                                text: "Retrieve a working bridge from Tor Project's BridgeDB";
+                                color: Theme.muted;
+                                font-size: 11px;
                             }
                         }
                     }

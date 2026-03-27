@@ -1,19 +1,30 @@
 #![cfg(target_os = "android")]
 
 use arti_client::{TorClient, TorClientConfig};
+use arti_client::config::pt::BridgeConfig;
 use tor_rtcompat::PreferredRuntime;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use once_cell::sync::Lazy;
-use std::os::raw::c_int;
+use once_cell::sync::{Lazy, OnceCell};
+use std::path::PathBuf;
+use std::fs;
 use jni::objects::{JClass, JString};
 use jni::JNIEnv;
+use std::os::raw::c_int;
+use android_activity::AndroidApp;
 
 slint::include_modules!();
 
-// Data model
+// Global data directory for persistent storage
+static APP_DATA_DIR: OnceCell<PathBuf> = OnceCell::new();
+
+fn data_dir() -> &'static PathBuf {
+    APP_DATA_DIR.get().expect("APP_DATA_DIR not set")
+}
+
+// Configuration structure
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct SniConfig {
     pub enabled: bool,
@@ -61,22 +72,72 @@ impl TorManager {
         self.log_buf.lock().await.join("\n")
     }
 
-    pub async fn update_config(&self, cfg: SniConfig) -> Result<()> {
+    async fn save_config_to_disk(&self, cfg: &SniConfig) -> Result<()> {
+        let json = serde_json::to_string_pretty(cfg)?;
+        let config_path = data_dir().join("config.json");
+        fs::write(&config_path, json)?;
+        self.push_log(format!("Config saved to {:?}", config_path)).await;
+        Ok(())
+    }
+
+    async fn load_config_from_disk(&self) -> Result<SniConfig> {
+        let config_path = data_dir().join("config.json");
+        if config_path.exists() {
+            let json = fs::read_to_string(&config_path)?;
+            let cfg: SniConfig = serde_json::from_str(&json)?;
+            self.push_log("Loaded saved configuration".into()).await;
+            Ok(cfg)
+        } else {
+            self.push_log("No saved config, using defaults".into()).await;
+            Ok(SniConfig::default())
+        }
+    }
+
+    pub async fn update_config(&self, new_cfg: SniConfig) -> Result<()> {
         let mut c = self.config.lock().await;
-        *c = cfg;
+        *c = new_cfg.clone();
+        self.save_config_to_disk(&new_cfg).await?;
         self.push_log(format!("Config updated → SNI: {}", c.custom_sni)).await;
         Ok(())
     }
 
     pub async fn start_tor(&self) -> Result<String> {
+        let cfg = self.config.lock().await.clone();
+
+        self.push_log("⏳ Building Tor client configuration...".into()).await;
+
+        let mut config_builder = TorClientConfig::builder();
+
+        if !cfg.bridge_line.trim().is_empty() {
+            self.push_log(format!("Using bridge line: {}", cfg.bridge_line)).await;
+            match BridgeConfig::from_line(&cfg.bridge_line) {
+                Ok(bridge) => {
+                    config_builder = config_builder
+                        .bridges(
+                            arti_client::config::BridgesConfig::default()
+                                .with_bridges(vec![bridge])
+                                .enabled(true)
+                        );
+                    self.push_log("Bridge configured successfully".into()).await;
+                }
+                Err(e) => {
+                    let err_msg = format!("Invalid bridge line: {e}");
+                    self.push_log(err_msg.clone()).await;
+                    return Err(anyhow::anyhow!(err_msg));
+                }
+            }
+        } else {
+            self.push_log("No bridge line – connecting directly".into()).await;
+        }
+
         self.push_log("⏳ Bootstrapping Tor...".into()).await;
-        let config = TorClientConfig::builder().build()?;
+        let config = config_builder.build()?;
         let client: TorClient<_> = TorClient::create_bootstrapped(config).await?;
-        let cfg = self.config.lock().await;
         {
             let mut guard = self.client.lock().await;
             *guard = Some(client);
         }
+
         let msg = format!("✅ Tor connected | SNI: {}", cfg.custom_sni);
         self.push_log(msg.clone()).await;
         Ok(msg)
@@ -105,7 +166,6 @@ impl TorManager {
 pub static TOR_MANAGER: Lazy<Arc<TorManager>> =
     Lazy::new(|| Arc::new(TorManager::new()));
 
-// SNI presets
 fn sni_presets() -> Vec<(&'static str, &'static str)> {
     vec![
         ("Cloudflare",  "www.cloudflare.com"),
@@ -141,20 +201,72 @@ fn bridge_presets() -> Vec<(&'static str, &'static str, &'static str)> {
     ]
 }
 
+// Fetch a random bridge from Tor's BridgeDB (WebTunnel bridges)
+async fn fetch_random_bridge() -> Result<String> {
+    // We'll use a simple approach: fetch a JSON list from BridgeDB's HTTPS URL.
+    // This is a public endpoint that returns a random bridge line.
+    let url = "https://bridges.torproject.org/bridges?transport=webtunnel";
+    let response = reqwest::Client::new()
+        .get(url)
+        .header("User-Agent", "AIX-VPN/0.1")
+        .send()
+        .await?;
+    if response.status().is_success() {
+        let body = response.text().await?;
+        // The response is plain text containing a bridge line.
+        // Sometimes it includes multiple lines; take the first non-empty one.
+        let bridge = body.lines()
+            .find(|line| !line.trim().is_empty())
+            .unwrap_or(&body)
+            .trim();
+        if !bridge.is_empty() {
+            return Ok(bridge.to_string());
+        }
+    }
+    Err(anyhow::anyhow!("Failed to fetch bridge"))
+}
+
 // Android entry point
 #[unsafe(no_mangle)]
-fn android_main(app: slint::android::AndroidApp) {
+fn android_main(app: AndroidApp) {
     android_logger::init_once(
         android_logger::Config::default()
             .with_max_level(log::LevelFilter::Info)
             .with_tag("AIX"),
     );
+
+    let data_dir = app.get_context().get_files_dir().unwrap();
+    APP_DATA_DIR.set(data_dir).unwrap();
+
     slint::android::init(app).unwrap();
 
     let ui = AppWindow::new().unwrap();
     let ui_weak = ui.as_weak();
 
-    // populate presets
+    // Load saved configuration
+    let tm = TOR_MANAGER.clone();
+    let ui_weak2 = ui_weak.clone();
+    tokio::task::spawn(async move {
+        let cfg = match tm.load_config_from_disk().await {
+            Ok(c) => c,
+            Err(e) => {
+                log::error!("Failed to load config: {}", e);
+                SniConfig::default()
+            }
+        };
+        tm.update_config(cfg.clone()).await.ok();
+        let _ = slint::invoke_from_event_loop(move || {
+            if let Some(ui) = ui_weak2.upgrade() {
+                ui.set_sni_input(cfg.custom_sni.into());
+                ui.set_bridge_input(cfg.bridge_line.into());
+                ui.set_kill_switch(cfg.kill_switch);
+                ui.set_dns_over_tor(cfg.dns_over_tor);
+                ui.set_log_text(tm.get_logs().await.into());
+            }
+        });
+    });
+
+    // Populate presets
     let sni_names: Vec<slint::SharedString> =
         sni_presets().iter().map(|(n, _)| (*n).into()).collect();
     let bridge_names: Vec<slint::SharedString> =
@@ -162,6 +274,7 @@ fn android_main(app: slint::android::AndroidApp) {
 
     ui.set_sni_presets(slint::ModelRc::new(slint::VecModel::from(sni_names)));
     ui.set_bridge_presets(slint::ModelRc::new(slint::VecModel::from(bridge_names)));
+
     ui.set_sni_input("www.cloudflare.com".into());
     ui.set_bridge_input("".into());
     ui.set_status_text("🔴 Disconnected".into());
@@ -198,6 +311,38 @@ fn android_main(app: slint::android::AndroidApp) {
         });
     }
 
+    // Fetch bridge
+    {
+        let ui_weak = ui_weak.clone();
+        ui.on_fetch_bridge(move || {
+            let ui_weak2 = ui_weak.clone();
+            let tm = TOR_MANAGER.clone();
+            std::thread::spawn(move || {
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                rt.block_on(async {
+                    match fetch_random_bridge().await {
+                        Ok(bridge) => {
+                            let _ = slint::invoke_from_event_loop(move || {
+                                if let Some(ui) = ui_weak2.upgrade() {
+                                    ui.set_bridge_input(bridge.into());
+                                    ui.set_log_text("Fetched a fresh bridge from BridgeDB".into());
+                                }
+                            });
+                        }
+                        Err(e) => {
+                            let err_msg = format!("Failed to fetch bridge: {e}");
+                            let _ = slint::invoke_from_event_loop(move || {
+                                if let Some(ui) = ui_weak2.upgrade() {
+                                    ui.set_log_text(err_msg.into());
+                                }
+                            });
+                        }
+                    }
+                });
+            });
+        });
+    }
+
     // Connect
     {
         let ui_weak = ui_weak.clone();
@@ -212,6 +357,7 @@ fn android_main(app: slint::android::AndroidApp) {
             ui.set_status_text("⏳ Connecting...".into());
             ui.set_is_connected(false);
 
+            let tm = TOR_MANAGER.clone();
             std::thread::spawn(move || {
                 let rt = tokio::runtime::Runtime::new().unwrap();
                 rt.block_on(async {
@@ -223,13 +369,13 @@ fn android_main(app: slint::android::AndroidApp) {
                         kill_switch,
                         dns_over_tor,
                     };
-                    let _ = TOR_MANAGER.update_config(cfg).await;
-                    let result = TOR_MANAGER.start_tor().await;
+                    let _ = tm.update_config(cfg).await;
+                    let result = tm.start_tor().await;
                     let (status, connected) = match result {
                         Ok(msg) => (msg, true),
                         Err(e) => (format!("❌ {e}"), false),
                     };
-                    let logs = TOR_MANAGER.get_logs().await;
+                    let logs = tm.get_logs().await;
                     let _ = slint::invoke_from_event_loop(move || {
                         if let Some(ui) = ui_weak2.upgrade() {
                             ui.set_status_text(status.into());
@@ -247,11 +393,12 @@ fn android_main(app: slint::android::AndroidApp) {
         let ui_weak = ui_weak.clone();
         ui.on_disconnect(move || {
             let ui_weak2 = ui_weak.clone();
+            let tm = TOR_MANAGER.clone();
             std::thread::spawn(move || {
                 let rt = tokio::runtime::Runtime::new().unwrap();
                 rt.block_on(async {
-                    TOR_MANAGER.stop_tor().await;
-                    let logs = TOR_MANAGER.get_logs().await;
+                    tm.stop_tor().await;
+                    let logs = tm.get_logs().await;
                     let _ = slint::invoke_from_event_loop(move || {
                         if let Some(ui) = ui_weak2.upgrade() {
                             ui.set_status_text("🔴 Disconnected".into());
@@ -269,10 +416,11 @@ fn android_main(app: slint::android::AndroidApp) {
         let ui_weak = ui_weak.clone();
         ui.on_refresh_logs(move || {
             let ui_weak2 = ui_weak.clone();
+            let tm = TOR_MANAGER.clone();
             std::thread::spawn(move || {
                 let rt = tokio::runtime::Runtime::new().unwrap();
                 rt.block_on(async {
-                    let logs = TOR_MANAGER.get_logs().await;
+                    let logs = tm.get_logs().await;
                     let _ = slint::invoke_from_event_loop(move || {
                         if let Some(ui) = ui_weak2.upgrade() {
                             ui.set_log_text(logs.into());
