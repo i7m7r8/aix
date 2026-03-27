@@ -1,4 +1,4 @@
-import { Button, CheckBox, ScrollView, TabWidget, VerticalBox, HorizontalBox, LineEdit, GroupBox, GridLayout } from "std-widgets.slint";
+import { Button, CheckBox, ScrollView, TabWidget, VerticalBox, HorizontalBox, LineEdit, GroupBox } from "std-widgets.slint";
 
 export component AppWindow inherits Window {
     title: "AIX VPN";
@@ -89,79 +89,80 @@ export component AppWindow inherits Window {
             // ── Tab 1: Connect ──────────────────────────────────────────
             Tab {
                 title: "🔒 Connect";
-                VerticalBox {
-                    padding: 14px;
-                    spacing: 10px;
+                ScrollView {
+                    VerticalBox {
+                        padding: 14px;
+                        spacing: 10px;
 
-                    GroupBox {
-                        title: "SNI Hostname (TLS bypass)";
-                        VerticalBox {
-                            spacing: 6px;
-                            // Use GridLayout for wrap‑able buttons
-                            GridLayout {
+                        GroupBox {
+                            title: "SNI Hostname (TLS bypass)";
+                            VerticalBox {
                                 spacing: 6px;
-                                for preset in sni_presets : Button {
-                                    text: preset;
-                                    clicked => { root.sni_preset_selected(preset); }
+                                HorizontalBox {
+                                    spacing: 6px;
+                                    for preset in sni_presets : Button {
+                                        text: preset;
+                                        clicked => { root.sni_preset_selected(preset); }
+                                    }
                                 }
-                            }
-                            LineEdit {
-                                placeholder-text: "Custom SNI e.g. www.cloudflare.com";
-                                text <=> sni_input;
+                                LineEdit {
+                                    placeholder-text: "Custom SNI e.g. www.cloudflare.com";
+                                    text <=> sni_input;
+                                }
                             }
                         }
-                    }
 
-                    GroupBox {
-                        title: "Bridge";
-                        VerticalBox {
-                            spacing: 6px;
-                            GridLayout {
+                        GroupBox {
+                            title: "Bridge";
+                            VerticalBox {
                                 spacing: 6px;
-                                for preset in bridge_presets : Button {
-                                    text: preset;
-                                    clicked => { root.bridge_preset_selected(preset); }
+                                HorizontalBox {
+                                    spacing: 6px;
+                                    for preset in bridge_presets : Button {
+                                        text: preset;
+                                        clicked => { root.bridge_preset_selected(preset); }
+                                    }
+                                }
+                                LineEdit {
+                                    placeholder-text: "Paste bridge line or leave empty";
+                                    text <=> bridge_input;
+                                }
+                                Button {
+                                    text: "🌐 Fetch bridge from BridgeDB";
+                                    clicked => { root.fetch_bridge(); }
                                 }
                             }
-                            LineEdit {
-                                placeholder-text: "Paste bridge line or leave empty";
-                                text <=> bridge_input;
+                        }
+
+                        GroupBox {
+                            title: "Options";
+                            VerticalBox {
+                                spacing: 4px;
+                                CheckBox { text: "🛡️  Kill Switch"; checked <=> kill_switch; }
+                                CheckBox { text: "🔒 DNS over Tor"; checked <=> dns_over_tor; }
+                                CheckBox { text: "🔄 Auto-reconnect"; checked <=> auto_reconnect; }
+                            }
+                        }
+
+                        Rectangle { vertical-stretch: 1; }
+
+                        if !is_connected : Button {
+                            text: "⚡ CONNECT";
+                            primary: true;
+                            height: 48px;
+                            clicked => { root.connect(); }
+                        }
+                        if is_connected : VerticalBox {
+                            spacing: 8px;
+                            Button {
+                                text: "🔴 DISCONNECT";
+                                height: 48px;
+                                clicked => { root.disconnect(); }
                             }
                             Button {
-                                text: "🌐 Fetch bridge from BridgeDB";
-                                clicked => { root.fetch_bridge(); }
+                                text: "♻️  New Circuit";
+                                clicked => { root.new_circuit(); }
                             }
-                        }
-                    }
-
-                    GroupBox {
-                        title: "Options";
-                        VerticalBox {
-                            spacing: 4px;
-                            CheckBox { text: "🛡️  Kill Switch"; checked <=> kill_switch; }
-                            CheckBox { text: "🔒 DNS over Tor"; checked <=> dns_over_tor; }
-                            CheckBox { text: "🔄 Auto-reconnect"; checked <=> auto_reconnect; }
-                        }
-                    }
-
-                    Rectangle { vertical-stretch: 1; }
-
-                    if !is_connected : Button {
-                        text: "⚡ CONNECT";
-                        primary: true;
-                        height: 48px;
-                        clicked => { root.connect(); }
-                    }
-                    if is_connected : VerticalBox {
-                        spacing: 8px;
-                        Button {
-                            text: "🔴 DISCONNECT";
-                            height: 48px;
-                            clicked => { root.disconnect(); }
-                        }
-                        Button {
-                            text: "♻️  New Circuit";
-                            clicked => { root.new_circuit(); }
                         }
                     }
                 }
@@ -199,19 +200,21 @@ export component AppWindow inherits Window {
             // ── Tab 3: About ────────────────────────────────────────────
             Tab {
                 title: "ℹ️  About";
-                VerticalBox {
-                    padding: 20px;
-                    spacing: 12px;
-                    alignment: center;
-                    Text { text: "⚡ AIX VPN"; font-size: 28px; font-weight: 700; color: #e0e0ff; horizontal-alignment: center; }
-                    Text { text: "SNI + Tor Privacy VPN"; font-size: 14px; color: #8888cc; horizontal-alignment: center; }
-                    Text { text: "v0.1.0"; font-size: 12px; color: #555577; horizontal-alignment: center; }
-                    Rectangle { height: 1px; background: #222233; }
-                    Text {
-                        text: "How it works:\n\n1. SNI hostname set → used as TLS handshake server name\n2. Bridge transport opens TLS connection with that SNI\n3. ISP sees traffic to e.g. cloudflare.com\n4. Tor bootstraps inside the encrypted tunnel\n5. All device traffic routes through Tor onion layers";
-                        font-size: 12px;
-                        color: #9999bb;
-                        wrap: word-wrap;
+                ScrollView {
+                    VerticalBox {
+                        padding: 20px;
+                        spacing: 12px;
+                        alignment: center;
+                        Text { text: "⚡ AIX VPN"; font-size: 28px; font-weight: 700; color: #e0e0ff; horizontal-alignment: center; }
+                        Text { text: "SNI + Tor Privacy VPN"; font-size: 14px; color: #8888cc; horizontal-alignment: center; }
+                        Text { text: "v0.1.0"; font-size: 12px; color: #555577; horizontal-alignment: center; }
+                        Rectangle { height: 1px; background: #222233; }
+                        Text {
+                            text: "How it works:\n\n1. SNI hostname set → used as TLS handshake server name\n2. Bridge transport opens TLS connection with that SNI\n3. ISP sees traffic to e.g. cloudflare.com\n4. Tor bootstraps inside the encrypted tunnel\n5. All device traffic routes through Tor onion layers";
+                            font-size: 12px;
+                            color: #9999bb;
+                            wrap: word-wrap;
+                        }
                     }
                 }
             }
