@@ -6,6 +6,20 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib", "staticlib", "lib"]
 
+[package.metadata.android]
+package = "com.i7m7r8.aix"
+build_targets = ["aarch64-linux-android"]
+
+[package.metadata.android.sdk]
+min_sdk_version = 23
+target_sdk_version = 30
+
+[package.metadata.android.signing.release]
+store_file = "keystore.jks"
+store_password = "${KEYSTORE_PASSWORD}"
+key_alias = "${KEY_ALIAS}"
+key_password = "${KEYSTORE_PASSWORD}"
+
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread"] }
 anyhow = "1.0"
