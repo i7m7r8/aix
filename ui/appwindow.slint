@@ -1,0 +1,582 @@
+import { ScrollView, Button, LineEdit, TextEdit, CheckBox, ComboBox, TabWidget } from "std-widgets.slint";
+
+// ── Color palette ─────────────────────────────────────────────────────────────
+global Theme {
+    out property <color> bg:           #0d0f14;
+    out property <color> surface:      #161921;
+    out property <color> card:         #1e2130;
+    out property <color> accent:       #7c3aed;
+    out property <color> accent-glow:  #a855f7;
+    out property <color> success:      #10b981;
+    out property <color> danger:       #ef4444;
+    out property <color> warning:      #f59e0b;
+    out property <color> text:         #f1f5f9;
+    out property <color> muted:        #64748b;
+    out property <color> border:       #2d3448;
+}
+
+// ── Reusable card ─────────────────────────────────────────────────────────────
+component Card inherits Rectangle {
+    background: Theme.card;
+    border-radius: 14px;
+    border-width: 1px;
+    border-color: Theme.border;
+}
+
+// ── Pill button ───────────────────────────────────────────────────────────────
+component PillButton inherits Rectangle {
+    in property <string> label;
+    in property <color>  btn-color: Theme.accent;
+    in property <bool>   small: false;
+    callback clicked;
+
+    height: small ? 36px : 48px;
+    border-radius: height / 2;
+    background: btn-color;
+
+    animate background { duration: 150ms; }
+
+    Text {
+        text: label;
+        color: white;
+        font-size: small ? 13px : 15px;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    touch := TouchArea { clicked => { root.clicked(); } }
+
+    states [
+        hovered when touch.has-hover: {
+            background: btn-color.brighter(20%);
+        }
+        pressed when touch.pressed: {
+            background: btn-color.darker(15%);
+        }
+    ]
+}
+
+// ── Status orb ────────────────────────────────────────────────────────────────
+component StatusOrb inherits Rectangle {
+    in property <bool> connected;
+    width: 14px; height: 14px;
+    border-radius: 7px;
+    background: connected ? Theme.success : Theme.danger;
+
+    // pulse ring
+    Rectangle {
+        width: parent.width + 8px;
+        height: parent.height + 8px;
+        x: -4px; y: -4px;
+        border-radius: (parent.width + 8px) / 2;
+        background: transparent;
+        border-width: 2px;
+        border-color: connected ? Theme.success.with-alpha(0.4) : Theme.danger.with-alpha(0.4);
+        animate border-color { duration: 1000ms; }
+    }
+}
+
+// ── Tag chip ──────────────────────────────────────────────────────────────────
+component Chip inherits Rectangle {
+    in property <string> label;
+    callback clicked;
+
+    height: 30px;
+    border-radius: 8px;
+    background: Theme.surface;
+    border-width: 1px;
+    border-color: Theme.border;
+    padding: 8px;
+
+    Text {
+        text: label;
+        color: Theme.muted;
+        font-size: 12px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    touch := TouchArea { clicked => { root.clicked(); } }
+    states [
+        hovered when touch.has-hover: {
+            background: Theme.accent.with-alpha(0.15);
+            border-color: Theme.accent;
+        }
+    ]
+}
+
+// ── Section label ─────────────────────────────────────────────────────────────
+component SectionLabel inherits Text {
+    color: Theme.muted;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+}
+
+// ── Main window ───────────────────────────────────────────────────────────────
+export component AppWindow inherits Window {
+    title: "AIX VPN";
+    background: Theme.bg;
+    preferred-width: 420px;
+    preferred-height: 860px;
+
+    // ── Public state (set from Rust) ──────────────────────────────────────
+    in-out property <string>   status-text:    "🔴 Disconnected";
+    in-out property <string>   log-text:       "";
+    in-out property <string>   sni-input:      "www.cloudflare.com";
+    in-out property <string>   bridge-input:   "";
+    in-out property <bool>     is-connected:   false;
+    in-out property <bool>     kill-switch:    true;
+    in-out property <bool>     dns-over-tor:   true;
+    in-out property <int>      selected-tab:   0;
+    in-out property <[string]> sni-presets:    [];
+    in-out property <[string]> bridge-presets: [];
+
+    // ── Callbacks ─────────────────────────────────────────────────────────
+    callback connect();
+    callback disconnect();
+    callback refresh-logs();
+    callback sni-preset-selected(int);
+    callback bridge-preset-selected(int);
+
+    // ── Root layout ───────────────────────────────────────────────────────
+    VerticalLayout {
+        padding: 0px;
+        spacing: 0px;
+
+        // ── Top bar ───────────────────────────────────────────────────────
+        Rectangle {
+            height: 64px;
+            background: Theme.surface;
+            border-bottom-width: 1px;
+            border-color: Theme.border;
+
+            HorizontalLayout {
+                padding-left: 20px;
+                padding-right: 20px;
+                alignment: space-between;
+
+                HorizontalLayout {
+                    spacing: 10px;
+                    alignment: center;
+
+                    // Shield icon text
+                    Text {
+                        text: "🛡";
+                        font-size: 22px;
+                        vertical-alignment: center;
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Text {
+                            text: "AIX VPN";
+                            color: Theme.text;
+                            font-size: 18px;
+                            font-weight: 800;
+                        }
+                        Text {
+                            text: "SNI → Tor";
+                            color: Theme.accent-glow;
+                            font-size: 11px;
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: center;
+                    StatusOrb { connected: is-connected; }
+                    Text {
+                        text: is-connected ? "LIVE" : "OFF";
+                        color: is-connected ? Theme.success : Theme.muted;
+                        font-size: 11px;
+                        font-weight: 700;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+
+        // ── Tab bar ───────────────────────────────────────────────────────
+        Rectangle {
+            height: 48px;
+            background: Theme.surface;
+
+            HorizontalLayout {
+                padding-left: 8px;
+                padding-right: 8px;
+                spacing: 4px;
+                alignment: center;
+
+                for tab-name[i] in ["Home", "SNI", "Bridges", "Settings", "Logs"] : Rectangle {
+                    height: 36px;
+                    border-radius: 10px;
+                    background: selected-tab == i ? Theme.accent : transparent;
+                    animate background { duration: 200ms; }
+
+                    Text {
+                        text: tab-name;
+                        color: selected-tab == i ? white : Theme.muted;
+                        font-size: 13px;
+                        font-weight: selected-tab == i ? 700 : 500;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                        animate color { duration: 200ms; }
+                    }
+
+                    tab-touch := TouchArea {
+                        clicked => { selected-tab = i; }
+                    }
+                }
+            }
+        }
+
+        // ── Tab content ───────────────────────────────────────────────────
+        Rectangle {
+            background: Theme.bg;
+
+            // ════════════════════════════════════════════════════════════
+            // TAB 0 — HOME
+            // ════════════════════════════════════════════════════════════
+            if selected-tab == 0: ScrollView {
+                VerticalLayout {
+                    padding: 20px;
+                    spacing: 16px;
+
+                    // Status card
+                    Card {
+                        height: 120px;
+                        VerticalLayout {
+                            padding: 20px;
+                            spacing: 8px;
+                            alignment: center;
+
+                            HorizontalLayout {
+                                spacing: 10px;
+                                alignment: center;
+                                StatusOrb { connected: is-connected; }
+                                Text {
+                                    text: status-text;
+                                    color: is-connected ? Theme.success : Theme.text;
+                                    font-size: 15px;
+                                    font-weight: 700;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            Text {
+                                text: is-connected
+                                    ? "Traffic routed → SNI tunnel → Tor"
+                                    : "Not connected";
+                                color: Theme.muted;
+                                font-size: 12px;
+                                horizontal-alignment: center;
+                            }
+                        }
+                    }
+
+                    // Circuit visualization
+                    Card {
+                        height: 80px;
+                        VerticalLayout {
+                            padding: 16px;
+                            alignment: center;
+                            HorizontalLayout {
+                                spacing: 6px;
+                                alignment: center;
+
+                                for hop in ["📱 You", "→", "🔒 SNI", "→", "🧅 Guard", "→", "🔀 Relay", "→", "🌍 Exit"] : Text {
+                                    text: hop;
+                                    color: is-connected ? Theme.text : Theme.muted;
+                                    font-size: 12px;
+                                    vertical-alignment: center;
+                                    animate color { duration: 400ms; }
+                                }
+                            }
+                        }
+                    }
+
+                    // Connect / Disconnect buttons
+                    HorizontalLayout {
+                        spacing: 12px;
+                        PillButton {
+                            label: "⚡ CONNECT";
+                            btn-color: Theme.success;
+                            clicked => { connect(); }
+                        }
+                        PillButton {
+                            label: "⏹ STOP";
+                            btn-color: Theme.danger;
+                            clicked => { disconnect(); }
+                        }
+                    }
+
+                    // Quick info
+                    Card {
+                        height: 100px;
+                        VerticalLayout {
+                            padding: 16px;
+                            spacing: 6px;
+                            SectionLabel { text: "ACTIVE CONFIG"; }
+                            Text {
+                                text: "SNI: " + sni-input;
+                                color: Theme.text;
+                                font-size: 13px;
+                                overflow: elide;
+                            }
+                            Text {
+                                text: "Kill Switch: " + (kill-switch ? "ON" : "OFF")
+                                    + "  |  DNS over Tor: " + (dns-over-tor ? "ON" : "OFF");
+                                color: Theme.muted;
+                                font-size: 12px;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ════════════════════════════════════════════════════════════
+            // TAB 1 — SNI CONFIG
+            // ════════════════════════════════════════════════════════════
+            if selected-tab == 1: ScrollView {
+                VerticalLayout {
+                    padding: 20px;
+                    spacing: 16px;
+
+                    Card {
+                        height: 110px;
+                        VerticalLayout {
+                            padding: 16px;
+                            spacing: 8px;
+                            SectionLabel { text: "CUSTOM SNI HOSTNAME"; }
+                            LineEdit {
+                                placeholder-text: "e.g. www.cloudflare.com";
+                                text <=> sni-input;
+                                font-size: 14px;
+                            }
+                            Text {
+                                text: "This hostname is used in TLS SNI field to imitate legitimate traffic";
+                                color: Theme.muted;
+                                font-size: 11px;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+
+                    // SNI presets
+                    Card {
+                        VerticalLayout {
+                            padding: 16px;
+                            spacing: 10px;
+
+                            SectionLabel { text: "SNI PRESETS"; }
+
+                            GridLayout {
+                                spacing: 8px;
+                                for preset[i] in sni-presets: Chip {
+                                    label: preset;
+                                    clicked => { sni-preset-selected(i); }
+                                }
+                            }
+                        }
+                    }
+
+                    // SNI info card
+                    Card {
+                        height: 130px;
+                        VerticalLayout {
+                            padding: 16px;
+                            spacing: 6px;
+                            SectionLabel { text: "HOW SNI ROUTING WORKS"; }
+                            Text {
+                                text: "1. App connects to bridge using your chosen SNI hostname\n2. Deep packet inspection sees only the SNI (e.g. cloudflare.com)\n3. Tor traffic is tunneled inside the encrypted TLS connection\n4. Your ISP cannot distinguish this from normal HTTPS traffic";
+                                color: Theme.muted;
+                                font-size: 12px;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ════════════════════════════════════════════════════════════
+            // TAB 2 — BRIDGES
+            // ════════════════════════════════════════════════════════════
+            if selected-tab == 2: ScrollView {
+                VerticalLayout {
+                    padding: 20px;
+                    spacing: 16px;
+
+                    Card {
+                        VerticalLayout {
+                            padding: 16px;
+                            spacing: 8px;
+                            SectionLabel { text: "BRIDGE LINE"; }
+                            TextEdit {
+                                text <=> bridge-input;
+                                font-size: 13px;
+                                preferred-height: 100px;
+                            }
+                            Text {
+                                text: "Paste a full bridge line or use a preset below";
+                                color: Theme.muted;
+                                font-size: 11px;
+                            }
+                        }
+                    }
+
+                    Card {
+                        VerticalLayout {
+                            padding: 16px;
+                            spacing: 10px;
+                            SectionLabel { text: "BRIDGE PRESETS"; }
+
+                            for preset[i] in bridge-presets: Rectangle {
+                                height: 52px;
+                                border-radius: 10px;
+                                background: Theme.surface;
+                                border-width: 1px;
+                                border-color: Theme.border;
+
+                                HorizontalLayout {
+                                    padding: 12px;
+                                    alignment: space-between;
+                                    Text {
+                                        text: preset;
+                                        color: Theme.text;
+                                        font-size: 13px;
+                                        vertical-alignment: center;
+                                    }
+                                    PillButton {
+                                        label: "USE";
+                                        small: true;
+                                        btn-color: Theme.accent;
+                                        width: 60px;
+                                        clicked => { bridge-preset-selected(i); }
+                                    }
+                                }
+
+                                t := TouchArea {}
+                                states [
+                                    hovered when t.has-hover: {
+                                        background: Theme.accent.with-alpha(0.08);
+                                    }
+                                ]
+                            }
+                        }
+                    }
+
+                    Card {
+                        height: 80px;
+                        VerticalLayout {
+                            padding: 16px;
+                            spacing: 4px;
+                            SectionLabel { text: "BRIDGE TYPES SUPPORTED"; }
+                            Text {
+                                text: "webtunnel  •  obfs4  •  meek-azure  •  snowflake  •  direct";
+                                color: Theme.muted;
+                                font-size: 12px;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ════════════════════════════════════════════════════════════
+            // TAB 3 — SETTINGS
+            // ════════════════════════════════════════════════════════════
+            if selected-tab == 3: ScrollView {
+                VerticalLayout {
+                    padding: 20px;
+                    spacing: 12px;
+
+                    Card {
+                        height: 200px;
+                        VerticalLayout {
+                            padding: 16px;
+                            spacing: 14px;
+                            SectionLabel { text: "SECURITY"; }
+
+                            HorizontalLayout {
+                                alignment: space-between;
+                                VerticalLayout {
+                                    Text { text: "Kill Switch"; color: Theme.text; font-size: 14px; }
+                                    Text { text: "Block all traffic if Tor drops"; color: Theme.muted; font-size: 11px; }
+                                }
+                                CheckBox { checked <=> kill-switch; }
+                            }
+
+                            HorizontalLayout {
+                                alignment: space-between;
+                                VerticalLayout {
+                                    Text { text: "DNS over Tor"; color: Theme.text; font-size: 14px; }
+                                    Text { text: "Route DNS queries through Tor"; color: Theme.muted; font-size: 11px; }
+                                }
+                                CheckBox { checked <=> dns-over-tor; }
+                            }
+                        }
+                    }
+
+                    Card {
+                        height: 130px;
+                        VerticalLayout {
+                            padding: 16px;
+                            spacing: 8px;
+                            SectionLabel { text: "ABOUT"; }
+                            Text { text: "AIX VPN v0.1.0"; color: Theme.text; font-size: 14px; }
+                            Text { text: "SNI → Tor routing engine"; color: Theme.muted; font-size: 12px; }
+                            Text { text: "Built with Rust + Slint + Arti"; color: Theme.muted; font-size: 12px; }
+                            Text { text: "github.com/i7m7r8/aix"; color: Theme.accent-glow; font-size: 12px; }
+                        }
+                    }
+                }
+            }
+
+            // ════════════════════════════════════════════════════════════
+            // TAB 4 — LOGS
+            // ════════════════════════════════════════════════════════════
+            if selected-tab == 4: VerticalLayout {
+                padding: 16px;
+                spacing: 10px;
+
+                HorizontalLayout {
+                    alignment: space-between;
+                    Text {
+                        text: "Live Logs";
+                        color: Theme.text;
+                        font-size: 16px;
+                        font-weight: 700;
+                        vertical-alignment: center;
+                    }
+                    PillButton {
+                        label: "↻ Refresh";
+                        small: true;
+                        btn-color: Theme.accent;
+                        width: 100px;
+                        clicked => { refresh-logs(); }
+                    }
+                }
+
+                ScrollView {
+                    Rectangle {
+                        background: Theme.surface;
+                        border-radius: 12px;
+                        border-width: 1px;
+                        border-color: Theme.border;
+
+                        Text {
+                            text: log-text == "" ? "No logs yet..." : log-text;
+                            color: Theme.muted;
+                            font-size: 12px;
+                            padding: 14px;
+                            wrap: word-wrap;
+                            overflow: clip;
+                            font-family: "monospace";
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
