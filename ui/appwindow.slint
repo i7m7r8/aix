@@ -94,25 +94,21 @@ export component AppWindow inherits Window {
                         padding: 14px;
                         spacing: 10px;
 
-                        // Big status orb (simulated)
-                        Rectangle {
-                            height: 100px;
+                        // Big status orb (simulated) – now using HorizontalBox for alignment
+                        HorizontalBox {
                             alignment: center;
-                            HorizontalBox {
-                                alignment: center;
-                                spacing: 10px;
-                                Rectangle {
-                                    width: 32px;
-                                    height: 32px;
-                                    border-radius: 16px;
-                                    background: is_connected ? #44ff44 : #ff4444;
-                                }
-                                Text {
-                                    text: is_connected ? "CONNECTED" : "DISCONNECTED";
-                                    font-size: 18px;
-                                    font-weight: 700;
-                                    color: is_connected ? #44ff44 : #ff4444;
-                                }
+                            spacing: 10px;
+                            Rectangle {
+                                width: 32px;
+                                height: 32px;
+                                border-radius: 16px;
+                                background: is_connected ? #44ff44 : #ff4444;
+                            }
+                            Text {
+                                text: is_connected ? "CONNECTED" : "DISCONNECTED";
+                                font-size: 18px;
+                                font-weight: 700;
+                                color: is_connected ? #44ff44 : #ff4444;
                             }
                         }
 

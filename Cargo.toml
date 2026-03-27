@@ -24,7 +24,7 @@ key_alias = "aix"
 key_password = "aix123"
 
 [dependencies]
-slint = { version = "=1.15.1", features = ["backend-android-activity-06"] }
+slint = { version = "=1.15.1", features = ["backend-android-activity-06", "renderer-software"] }
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
 anyhow = "1"
 once_cell = "1"
