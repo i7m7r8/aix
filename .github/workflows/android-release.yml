@@ -8,13 +8,20 @@ on:
 jobs:
   build-android:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          - aarch64-linux-android
+          - armv7-linux-androideabi
+          - x86_64-linux-android
+
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android
+          targets: ${{ matrix.target }}
 
       - name: Install cargo-apk
         run: cargo install cargo-apk
@@ -22,7 +29,7 @@ jobs:
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '17'
 
       - name: Setup Android SDK
@@ -33,15 +40,20 @@ jobs:
           packages: >-
             tools
             platform-tools
-            platforms;android-30
-            build-tools;30.0.3
+            platforms;android-34
+            build-tools;34.0.0
           accept-android-sdk-licenses: true
 
       - name: Decode Keystore
         run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > keystore.jks
 
       - name: Build APK
-        run: cargo apk build --release --target aarch64-linux-android
+        run: cargo apk build --release --target ${{ matrix.target }}
+
+      - name: Rename APK
+        run: |
+          mkdir -p out
+          cp target/release/apk/aix.apk out/aix-${{ matrix.target }}.apk
 
       - name: Sign APK
         run: |
@@ -50,12 +62,38 @@ jobs:
             --ks keystore.jks \
             --ks-pass pass:${{ secrets.KEYSTORE_PASSWORD }} \
             --ks-key-alias ${{ secrets.KEY_ALIAS }} \
-            --out signed-aix.apk \
-            target/release/apk/aix.apk
+            --key-pass pass:${{ secrets.KEY_PASSWORD }} \
+            --out out/aix-${{ matrix.target }}-signed.apk \
+            out/aix-${{ matrix.target }}.apk
 
-      - name: Upload Artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: aix-signed-apk
-          path: signed-aix.apk
-          retention-days: 30
+          name: apk-${{ matrix.target }}
+          path: out/aix-${{ matrix.target }}-signed.apk
+
+  release:
+    needs: build-android
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all APKs
+        uses: actions/download-artifact@v4
+        with:
+          path: apks
+          merge-multiple: true
+
+      - name: Get short SHA
+        id: sha
+        run: echo "short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ steps.sha.outputs.short }}
+          name: "AIX Build ${{ steps.sha.outputs.short }}"
+          body: "Auto-release from commit ${{ github.sha }}"
+          files: apks/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
