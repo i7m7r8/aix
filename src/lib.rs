@@ -64,7 +64,7 @@ pub static TOR_MANAGER: once_cell::sync::Lazy<Arc<TorManager>> =
 
 #[no_mangle]
 pub extern "C" fn Java_com_i7m7r8_aix_TorVpnService_startTorWithTun(
-    env: JNIEnv,
+    mut env: JNIEnv,
     _class: JClass,
     tun_fd: c_int,
     sni: JString,
