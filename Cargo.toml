@@ -35,6 +35,8 @@ chrono = { version = "0.4", features = ["serde"] }
 arti-client = { version = "0.38", default-features = false, features = ["tokio", "rustls", "bridge-client", "pt-client"] }
 tor-rtcompat = { version = "0.38", default-features = false, features = ["tokio", "rustls"] }
 tor-config = "0.38"
+# Force bundled sqlite — NDK has no system libsqlite3
+rusqlite = { version = "0.31", features = ["bundled"] }
 jni = "0.21"
 android_logger = "0.13"
 log = "0.4"
