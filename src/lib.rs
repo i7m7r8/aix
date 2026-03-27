@@ -145,7 +145,6 @@ impl TorManager {
         fs::create_dir_all(&cache)?;
         fs::create_dir_all(&state)?;
 
-        // Try to inject SNI into bridge line
         let bridge_line = inject_sni_into_bridge(&cfg.bridge_line, &cfg.custom_sni);
 
         let toml_str = build_toml_config(
@@ -266,8 +265,6 @@ fn bridge_presets() -> Vec<(&'static str, &'static str, &'static str)> {
          "webtunnel 185.220.101.2:443 url=https://www.microsoft.com/wt ver=0.0.1"),
         ("obfs4 Bridge (Europe)", "",
          "obfs4 5.230.119.38:22333 8B920DA77C4078FBCF0491BB39B3B974EA973ACF cert=I3LUTdY2yJkwcORkM+8vV1iGcNc5tA9w+7Fj6Y0= iat-mode=0"),
-        ("obfs4 Bridge (US)", "",
-         "obfs4 192.95.36.142:443 2ADDA5F83B5C0D50B9C9C8E5C5F1C9F7C8D6B5F8 cert=... iat-mode=0"),
         ("meek-azure", "",
          "meek_lite 0.0.2.0:2 B9E7141C594AF25699E0079C1F0146F409495296 url=https://meek.azureedge.net/ front=ajax.aspnetcdn.com"),
         ("No bridge (direct)", "", ""),
@@ -275,15 +272,12 @@ fn bridge_presets() -> Vec<(&'static str, &'static str, &'static str)> {
 }
 
 async fn fetch_random_bridge() -> Result<String> {
-    // Known working bridges (direct from BridgeDB)
     let fallbacks = vec![
         "webtunnel 185.220.101.1:443 url=https://www.cloudflare.com/wt ver=0.0.1",
         "webtunnel 185.220.101.2:443 url=https://www.microsoft.com/wt ver=0.0.1",
         "webtunnel 185.220.101.3:443 url=https://www.google.com/wt ver=0.0.1",
-        "webtunnel 185.220.101.4:443 url=https://www.apple.com/wt ver=0.0.1",
     ];
     
-    // Try BridgeDB API first
     match reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
@@ -304,7 +298,6 @@ async fn fetch_random_bridge() -> Result<String> {
         _ => {}
     }
     
-    // Return a fallback bridge
     Ok(fallbacks[0].to_string())
 }
 
@@ -324,7 +317,7 @@ fn android_main(app: slint::android::AndroidApp) {
     let ui = AppWindow::new().unwrap();
     let ui_weak = ui.as_weak();
 
-    // Load saved config
+    // Load saved config on startup
     {
         let tm = TOR_MANAGER.clone();
         let ui_weak2 = ui_weak.clone();
@@ -462,17 +455,21 @@ fn android_main(app: slint::android::AndroidApp) {
     {
         let ui_weak = ui_weak.clone();
         ui.on_connect(move || {
-            let ui = ui_weak.upgrade().unwrap();
-            let sni    = ui.get_sni_input().to_string();
-            let bridge = ui.get_bridge_input().to_string();
-            let ks     = ui.get_kill_switch();
-            let dot    = ui.get_dns_over_tor();
-            let ar     = ui.get_auto_reconnect();
-            let ui_weak2 = ui_weak.clone();
-            ui.set_status_text("🟡 Connecting...".into());
-            ui.set_is_connecting(true);
-            ui.set_is_connected(false);
-            ui.set_error_text("".into());
+            // Get values BEFORE moving ui_weak into the thread
+            let ui_clone = ui_weak.clone();
+            let sni = ui_weak.upgrade().unwrap().get_sni_input().to_string();
+            let bridge = ui_weak.upgrade().unwrap().get_bridge_input().to_string();
+            let ks = ui_weak.upgrade().unwrap().get_kill_switch();
+            let dot = ui_weak.upgrade().unwrap().get_dns_over_tor();
+            let ar = ui_weak.upgrade().unwrap().get_auto_reconnect();
+            
+            // Update UI immediately using the upgrade we still have
+            if let Some(ui) = ui_weak.upgrade() {
+                ui.set_status_text("🟡 Connecting...".into());
+                ui.set_is_connecting(true);
+                ui.set_is_connected(false);
+                ui.set_error_text("".into());
+            }
             
             let tm = TOR_MANAGER.clone();
             std::thread::spawn(move || {
@@ -494,7 +491,7 @@ fn android_main(app: slint::android::AndroidApp) {
                     };
                     let logs = tm.get_logs().await;
                     let _ = slint::invoke_from_event_loop(move || {
-                        if let Some(ui) = ui_weak2.upgrade() {
+                        if let Some(ui) = ui_clone.upgrade() {
                             ui.set_status_text(status.into());
                             ui.set_is_connecting(false);
                             ui.set_is_connected(ok);
@@ -515,7 +512,10 @@ fn android_main(app: slint::android::AndroidApp) {
         ui.on_disconnect(move || {
             let ui_weak2 = ui_weak.clone();
             let tm = TOR_MANAGER.clone();
-            ui.set_is_connecting(false);
+            // Update UI immediately
+            if let Some(ui) = ui_weak.upgrade() {
+                ui.set_is_connecting(false);
+            }
             std::thread::spawn(move || {
                 let rt = tokio::runtime::Runtime::new().unwrap();
                 rt.block_on(async {
@@ -555,6 +555,7 @@ fn android_main(app: slint::android::AndroidApp) {
 
     // Clear logs
     {
+        let ui_weak = ui_weak.clone();
         ui.on_clear_logs(move || {
             let tm = TOR_MANAGER.clone();
             std::thread::spawn(move || {
@@ -586,8 +587,7 @@ pub extern "C" fn Java_com_i7m7r8_aix_TorVpnService_startTorWithTun(
             };
             let _ = tm.update_config(cfg).await;
             if let Err(e) = tm.start_tor().await {
-                log::error!("Tor start failed: {e}");
-                return;
+                log::error!("Tor start failed: {e}"); return;
             }
             log::info!("TUN fd={tun_fd} active — all traffic routed through Tor");
             loop { tokio::time::sleep(tokio::time::Duration::from_secs(3600)).await; }

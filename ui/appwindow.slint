@@ -229,13 +229,16 @@ export component AppWindow inherits Window {
                             border-color: Theme.border;
                             height: 120px;
                             ScrollView {
-                                Text {
-                                    text: log_text == "" ? "Ready. Click CONNECT to start.\n" : log_text;
-                                    font-size: 10px;
-                                    color: Theme.success;
-                                    wrap: word-wrap;
-                                    font-family: "monospace";
+                                // Use a VerticalBox inside to apply padding correctly
+                                VerticalBox {
                                     padding: 8px;
+                                    Text {
+                                        text: log_text == "" ? "Ready. Click CONNECT to start.\n" : log_text;
+                                        font-size: 10px;
+                                        color: Theme.success;
+                                        wrap: word-wrap;
+                                        font-family: "monospace";
+                                    }
                                 }
                             }
                         }
