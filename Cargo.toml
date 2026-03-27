@@ -20,5 +20,5 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 android_logger = "0.13"
 log = "0.4"
 
-# Override rusqlite to use bundled sqlite3 for Android
+# Force rusqlite to bundle SQLite for Android
 rusqlite = { version = "0.38", features = ["bundled"] }
