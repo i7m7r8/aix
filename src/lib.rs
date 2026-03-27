@@ -18,7 +18,7 @@ pub struct SniConfig {
 
 #[derive(Default)]
 pub struct TorManager {
-    client: Arc<Mutex<Option<TorClient<arti_client::TorRustlsRuntime>>>>,
+    client: Arc<Mutex<Option<TorClient<arti_client::tor_rtcompat::TokioRustlsRuntime>>>>,
     sni_config: Arc<Mutex<SniConfig>>,
 }
 
