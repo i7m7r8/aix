@@ -27,10 +27,6 @@ fn data_dir() -> &'static PathBuf {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct SniConfig {
     pub enabled: bool,
-    /// SNI hostname sent in TLS ClientHello — this is what bypasses ISP DPI.
-    /// The bridge transport (WebTunnel/obfs4) uses this SNI when opening
-    /// its TLS connection to the bridge server, making traffic look like
-    /// a connection to e.g. cloudflare.com. Tor then runs inside that tunnel.
     pub custom_sni: String,
     pub bridge_line: String,
     pub bridge_type: String,
@@ -144,19 +140,6 @@ impl TorManager {
         self.save_config(&new_cfg).await
     }
 
-    /// SNI→Tor connection flow:
-    ///
-    /// 1. SNI is embedded into the bridge line via the `sni=` or `host=` field
-    ///    (for WebTunnel) or used as the front domain (for meek).
-    ///    For obfs4 there is no TLS so SNI doesn't apply directly.
-    ///
-    /// 2. arti bootstraps Tor THROUGH that bridge.
-    ///    The bridge transport opens a TLS connection using the custom_sni
-    ///    as the Server Name Indication → ISP sees TLS to e.g. cloudflare.com.
-    ///
-    /// 3. Inside that TLS tunnel runs the actual Tor protocol.
-    ///
-    /// 4. After bootstrap, all traffic goes through Tor's onion layers.
     pub async fn start_tor(&self) -> Result<String> {
         let cfg = self.config.lock().await.clone();
 
@@ -168,7 +151,6 @@ impl TorManager {
         fs::create_dir_all(&cache)?;
         fs::create_dir_all(&state)?;
 
-        // Inject SNI into WebTunnel bridge line if not already present
         let bridge_line = inject_sni_into_bridge(&cfg.bridge_line, &cfg.custom_sni);
 
         let toml_str = build_toml_config(
@@ -195,7 +177,6 @@ impl TorManager {
 
         *self.client.lock().await = Some(client);
 
-        // Reset stats
         *self.stats.lock().await = TrafficStats {
             connected_at: Some(std::time::Instant::now()),
             ..Default::default()
@@ -246,20 +227,14 @@ impl TorManager {
     }
 }
 
-/// Injects the SNI hostname into a WebTunnel bridge line if missing.
-/// WebTunnel uses `url=https://<sni>/path` — we patch the host part.
 fn inject_sni_into_bridge(bridge_line: &str, sni: &str) -> String {
     if bridge_line.trim().is_empty() { return String::new(); }
-    // If the bridge already has url= with a real host, leave it alone
-    // Only inject if user chose a SNI preset but left bridge generic
     let line = bridge_line.trim().to_string();
-    // For webtunnel: if url= has a placeholder or cloudflare default, replace host
     if line.to_lowercase().starts_with("webtunnel") && !sni.is_empty() {
         if let Some(url_start) = line.find("url=https://") {
-            let after = &line[url_start + 12..]; // after "url=https://"
+            let after = &line[url_start + 12..];
             if let Some(slash) = after.find('/') {
                 let existing_host = &after[..slash];
-                // Only replace if it's a generic placeholder, not a real bridge host
                 if existing_host.contains("cloudflare")
                     || existing_host.contains("microsoft")
                     || existing_host.contains("google")
@@ -425,21 +400,25 @@ fn android_main(app: slint::android::AndroidApp) {
         });
     }
 
-    // SNI preset selected
+    // SNI preset selected (now receives string)
     {
         let ui_weak = ui_weak.clone();
-        ui.on_sni_preset_selected(move |idx| {
-            if let Some((_, sni)) = sni_presets().get(idx as usize) {
-                if let Some(ui) = ui_weak.upgrade() { ui.set_sni_input((*sni).into()); }
+        ui.on_sni_preset_selected(move |preset_name| {
+            let presets = sni_presets();
+            if let Some((_, sni)) = presets.iter().find(|(n, _)| *n == preset_name) {
+                if let Some(ui) = ui_weak.upgrade() {
+                    ui.set_sni_input((*sni).into());
+                }
             }
         });
     }
 
-    // Bridge preset selected
+    // Bridge preset selected (now receives string)
     {
         let ui_weak = ui_weak.clone();
-        ui.on_bridge_preset_selected(move |idx| {
-            if let Some((_, sni, bridge)) = bridge_presets().get(idx as usize) {
+        ui.on_bridge_preset_selected(move |preset_name| {
+            let presets = bridge_presets();
+            if let Some((_, sni, bridge)) = presets.iter().find(|(n, _, _)| *n == preset_name) {
                 if let Some(ui) = ui_weak.upgrade() {
                     if !sni.is_empty() { ui.set_sni_input((*sni).into()); }
                     ui.set_bridge_input((*bridge).into());

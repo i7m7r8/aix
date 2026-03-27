@@ -1,4 +1,4 @@
-import { Button, ComboBox, CheckBox, ScrollView, TabWidget, VerticalBox, HorizontalBox, LineEdit, GroupBox } from "std-widgets.slint";
+import { Button, CheckBox, ScrollView, TabWidget, VerticalBox, HorizontalBox, LineEdit, GroupBox } from "std-widgets.slint";
 
 export component AppWindow inherits Window {
     title: "AIX VPN";
@@ -27,8 +27,8 @@ export component AppWindow inherits Window {
     callback fetch_bridge();
     callback refresh_logs();
     callback clear_logs();
-    callback sni_preset_selected(int);
-    callback bridge_preset_selected(int);
+    callback sni_preset_selected(string);
+    callback bridge_preset_selected(string);
 
     VerticalBox {
         padding: 0px;
@@ -97,9 +97,14 @@ export component AppWindow inherits Window {
                         title: "SNI Hostname (TLS bypass)";
                         VerticalBox {
                             spacing: 6px;
-                            ComboBox {
-                                model: sni_presets;
-                                selected(idx) => { root.sni_preset_selected(idx); }
+                            // Use a row of buttons instead of ComboBox
+                            HorizontalBox {
+                                spacing: 6px;
+                                wrap: true;
+                                for preset in sni_presets : Button {
+                                    text: preset;
+                                    clicked => { root.sni_preset_selected(preset); }
+                                }
                             }
                             LineEdit {
                                 placeholder-text: "Custom SNI e.g. www.cloudflare.com";
@@ -112,9 +117,13 @@ export component AppWindow inherits Window {
                         title: "Bridge";
                         VerticalBox {
                             spacing: 6px;
-                            ComboBox {
-                                model: bridge_presets;
-                                selected(idx) => { root.bridge_preset_selected(idx); }
+                            HorizontalBox {
+                                spacing: 6px;
+                                wrap: true;
+                                for preset in bridge_presets : Button {
+                                    text: preset;
+                                    clicked => { root.bridge_preset_selected(preset); }
+                                }
                             }
                             LineEdit {
                                 placeholder-text: "Paste bridge line or leave empty";
