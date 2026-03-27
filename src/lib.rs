@@ -202,16 +202,7 @@ impl TorManager {
         self.push_log("🔴 Tor stopped".into()).await;
     }
 
-    pub async fn new_circuit(&self) -> Result<()> {
-        let guard = self.client.lock().await;
-        if let Some(client) = guard.as_ref() {
-            client.retire_all_circuits().await?;
-            self.push_log("♻️  New Tor circuit requested".into()).await;
-            Ok(())
-        } else {
-            Err(anyhow::anyhow!("Not connected"))
-        }
-    }
+    // New circuit feature removed (not available in arti 0.40)
 
     pub async fn is_connected(&self) -> bool {
         self.client.lock().await.is_some()
@@ -309,13 +300,16 @@ async fn fetch_random_bridge() -> Result<String> {
         .get("https://bridges.torproject.org/bridges?transport=webtunnel")
         .header("User-Agent", "AIX-VPN/0.1")
         .send().await?;
-    if resp.status().is_success() {
+
+    // Get status before moving resp
+    let status = resp.status();
+    if status.is_success() {
         let body = resp.text().await?;
         if let Some(line) = body.lines().find(|l| !l.trim().is_empty() && !l.starts_with("//")) {
             return Ok(line.trim().to_string());
         }
     }
-    Err(anyhow::anyhow!("No bridge returned (status: {})", resp.status()))
+    Err(anyhow::anyhow!("No bridge returned (status: {})", status))
 }
 
 // ── android_main ─────────────────────────────────────────────────────────────
@@ -389,8 +383,9 @@ fn android_main(app: slint::android::AndroidApp) {
                     let tm = TOR_MANAGER.clone();
                     if tm.is_connected().await {
                         let stats = tm.get_stats_str().await;
+                        let ui_local = ui_weak2.clone();
                         let _ = slint::invoke_from_event_loop(move || {
-                            if let Some(ui) = ui_weak2.upgrade() {
+                            if let Some(ui) = ui_local.upgrade() {
                                 ui.set_stats_text(stats.into());
                             }
                         });
@@ -405,7 +400,6 @@ fn android_main(app: slint::android::AndroidApp) {
         let ui_weak = ui_weak.clone();
         ui.on_sni_preset_selected(move |preset_name| {
             let presets = sni_presets();
-            // FIX: compare by swapping sides to use SharedString's PartialEq<&str>
             if let Some((_, sni)) = presets.iter().find(|(n, _)| preset_name == *n) {
                 if let Some(ui) = ui_weak.upgrade() {
                     ui.set_sni_input((*sni).into());
@@ -419,7 +413,6 @@ fn android_main(app: slint::android::AndroidApp) {
         let ui_weak = ui_weak.clone();
         ui.on_bridge_preset_selected(move |preset_name| {
             let presets = bridge_presets();
-            // FIX: swap sides
             if let Some((_, sni, bridge)) = presets.iter().find(|(n, _, _)| preset_name == *n) {
                 if let Some(ui) = ui_weak.upgrade() {
                     if !sni.is_empty() { ui.set_sni_input((*sni).into()); }
@@ -528,27 +521,23 @@ fn android_main(app: slint::android::AndroidApp) {
         });
     }
 
-    // New circuit
-    {
-        let ui_weak = ui_weak.clone();
-        ui.on_new_circuit(move || {
-            let ui_weak2 = ui_weak.clone();
-            let tm = TOR_MANAGER.clone();
-            std::thread::spawn(move || {
-                let rt = tokio::runtime::Runtime::new().unwrap();
-                rt.block_on(async {
-                    match tm.new_circuit().await {
-                        Ok(_) => {}
-                        Err(e) => { tm.push_log(format!("❌ Circuit error: {e}")).await; }
+    // New circuit button removed (not available in arti 0.40)
+    // We'll keep the callback but make it a no-op
+    ui.on_new_circuit(move || {
+        let tm = TOR_MANAGER.clone();
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                tm.push_log("⚠️  New circuit not available in this arti version".into()).await;
+                let logs = tm.get_logs().await;
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(ui) = ui.as_weak().upgrade() {
+                        ui.set_log_text(logs.into());
                     }
-                    let logs = tm.get_logs().await;
-                    let _ = slint::invoke_from_event_loop(move || {
-                        if let Some(ui) = ui_weak2.upgrade() { ui.set_log_text(logs.into()); }
-                    });
                 });
             });
         });
-    }
+    });
 
     // Refresh logs
     {
