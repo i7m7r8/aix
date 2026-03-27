@@ -40,18 +40,19 @@ jobs:
       - name: Decode Keystore
         run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > keystore.jks
 
-      - name: Build APK
+      - name: Build Unsigned APK
         run: cargo apk build --release --target aarch64-linux-android
 
       - name: Sign APK
         run: |
           BUILD_TOOLS=$(ls $ANDROID_HOME/build-tools | sort -V | tail -n1)
           APKSIGNER="$ANDROID_HOME/build-tools/$BUILD_TOOLS/apksigner"
-          APK_PATH="target/android-artifacts/release/apk/aix-release-unsigned.apk"
+          UNSIGNED_APK="target/release/apk/aix.apk"
+          SIGNED_APK="signed-aix.apk"
           $APKSIGNER sign --ks keystore.jks \
             --ks-pass pass:${{ secrets.KEYSTORE_PASSWORD }} \
-            --ks-key-alias ${{ secrets.KEYSTORE_ALIAS }} \
-            --out "signed-aix.apk" "$APK_PATH"
+            --ks-key-alias ${{ secrets.KEY_ALIAS }} \
+            --out "$SIGNED_APK" "$UNSIGNED_APK"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
