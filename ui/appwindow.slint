@@ -1,12 +1,10 @@
-import { Button, CheckBox, ScrollView, VerticalBox, HorizontalBox, LineEdit, GroupBox, Slider } from "std-widgets.slint";
+import { Button, CheckBox, ScrollView, VerticalBox, HorizontalBox, LineEdit, GroupBox } from "std-widgets.slint";
 
-// Proton VPN color palette
 global Theme {
     out property <color> bg:           #0A0C10;
     out property <color> surface:      #1A1C22;
     out property <color> card:         #22252C;
     out property <color> accent:       #6C5CE7;
-    out property <color> accent-hover: #7C6EE8;
     out property <color> success:      #00D87E;
     out property <color> danger:       #FF6B6B;
     out property <color> warning:      #FFB347;
@@ -21,7 +19,6 @@ export component AppWindow inherits Window {
     preferred-height: 800px;
     background: Theme.bg;
 
-    // Properties
     in-out property <string> sni_input: "www.cloudflare.com";
     in-out property <string> bridge_input: "";
     in-out property <bool>   kill_switch: true;
@@ -30,13 +27,13 @@ export component AppWindow inherits Window {
     in-out property <string> status_text: "🔴 Disconnected";
     in-out property <string> stats_text: "⏱ 00:00:00 | ↓0 B ↑0 B";
     in-out property <string> log_text: "";
+    in-out property <string> error_text: "";
     in-out property <bool>   is_connected: false;
     in-out property <bool>   is_connecting: false;
     in-out property <int>    selected_tab: 0;
     in-out property <[string]> sni_presets;
     in-out property <[string]> bridge_presets;
 
-    // Callbacks
     callback connect();
     callback disconnect();
     callback fetch_bridge();
@@ -44,146 +41,106 @@ export component AppWindow inherits Window {
     callback clear_logs();
     callback sni_preset_selected(string);
     callback bridge_preset_selected(string);
-    callback save_profile();
-    callback load_profile(string);
+    callback request_vpn_permission();
 
-    // Main layout
     VerticalBox {
         padding: 0px;
         spacing: 0px;
 
-        // ── Header ───────────────────────────────────────────────────────
+        // Header
         Rectangle {
             height: 56px;
             background: Theme.surface;
             border-bottom-width: 1px;
             border-color: Theme.border;
-
             HorizontalBox {
                 padding-left: 16px;
                 padding-right: 16px;
                 alignment: space-between;
-
                 HorizontalLayout {
                     spacing: 8px;
                     alignment: center;
-                    Text {
-                        text: "⚡";
-                        font-size: 24px;
-                        color: Theme.accent;
-                    }
-                    Text {
-                        text: "AIX VPN";
-                        font-size: 20px;
-                        font-weight: 700;
-                        color: Theme.text;
-                    }
+                    Text { text: "⚡"; font-size: 24px; color: Theme.accent; }
+                    Text { text: "AIX VPN"; font-size: 20px; font-weight: 700; color: Theme.text; }
                 }
-
                 HorizontalLayout {
                     spacing: 8px;
                     alignment: center;
-                    Rectangle {
-                        width: 8px;
-                        height: 8px;
-                        border-radius: 4px;
-                        background: is_connected ? Theme.success : (is_connecting ? Theme.warning : Theme.danger);
-                    }
-                    Text {
-                        text: status_text;
-                        font-size: 11px;
-                        color: is_connected ? Theme.success : (is_connecting ? Theme.warning : Theme.text-muted);
-                    }
+                    Rectangle { width: 8px; height: 8px; border-radius: 4px; background: is_connected ? Theme.success : (is_connecting ? Theme.warning : Theme.danger); }
+                    Text { text: status_text; font-size: 11px; color: is_connected ? Theme.success : (is_connecting ? Theme.warning : Theme.text-muted); }
                 }
             }
         }
 
-        // ── Stats Bar ────────────────────────────────────────────────────
+        // Stats bar
         Rectangle {
             height: 32px;
             background: Theme.card;
             HorizontalBox {
                 alignment: center;
                 spacing: 16px;
-                Text {
-                    text: stats_text;
-                    font-size: 11px;
-                    color: Theme.text-muted;
-                    horizontal-alignment: center;
-                }
+                Text { text: stats_text; font-size: 11px; color: Theme.text-muted; }
             }
         }
 
-        // ── Main Scrollable Content ───────────────────────────────────────
+        // Error bar (if any)
+        if error_text != "" : Rectangle {
+            height: 32px;
+            background: Theme.danger;
+            HorizontalBox {
+                alignment: center;
+                Text { text: error_text; font-size: 10px; color: Theme.text; wrap: word-wrap; }
+            }
+        }
+
+        // Main scrollable content
         ScrollView {
             vertical-stretch: 1;
-            
             VerticalBox {
                 padding: 16px;
                 spacing: 20px;
 
-                // ── Main Connect Card ──────────────────────────────────────
+                // Main Connect Card
                 Rectangle {
                     background: Theme.card;
                     border-radius: 16px;
                     border-width: 1px;
                     border-color: Theme.border;
-                    
                     VerticalBox {
                         padding: 20px;
                         spacing: 16px;
                         alignment: center;
-
-                        // Large status indicator
-                        Text {
-                            text: is_connected ? "🟢 CONNECTED" : (is_connecting ? "🟡 CONNECTING" : "⚫ DISCONNECTED");
-                            font-size: 14px;
-                            font-weight: 700;
-                            color: is_connected ? Theme.success : (is_connecting ? Theme.warning : Theme.text-muted);
-                        }
-
-                        // Main Connect/Disconnect button
+                        Text { text: is_connected ? "🟢 CONNECTED" : (is_connecting ? "🟡 CONNECTING" : "⚫ DISCONNECTED"); font-size: 14px; font-weight: 700; color: is_connected ? Theme.success : (is_connecting ? Theme.warning : Theme.text-muted); }
                         Button {
                             text: is_connected ? "DISCONNECT" : "CONNECT";
                             height: 56px;
                             background: is_connected ? Theme.danger : Theme.accent;
                             clicked => { if is_connected { disconnect(); } else { connect(); } }
                         }
-
-                        // Connection info
                         HorizontalBox {
-                            spacing: 12px;
-                            alignment: center;
+                            spacing: 12px; alignment: center;
                             Text { text: "🔒 SNI:"; font-size: 12px; color: Theme.text-muted; }
                             Text { text: sni_input; font-size: 12px; color: Theme.text; }
                         }
                         HorizontalBox {
-                            spacing: 12px;
-                            alignment: center;
+                            spacing: 12px; alignment: center;
                             Text { text: "🌉 Bridge:"; font-size: 12px; color: Theme.text-muted; }
                             Text { text: if bridge_input == "" { "None (direct)" } else { "Active" }; font-size: 12px; color: Theme.text; }
                         }
                     }
                 }
 
-                // ── SNI Section ───────────────────────────────────────────
+                // SNI Section
                 Rectangle {
                     background: Theme.card;
                     border-radius: 12px;
                     border-width: 1px;
                     border-color: Theme.border;
-                    
                     VerticalBox {
                         padding: 16px;
                         spacing: 12px;
-                        
                         Text { text: "🎯 SNI HOSTNAME"; font-size: 12px; font-weight: 700; color: Theme.text-muted; letter-spacing: 1px; }
-                        LineEdit {
-                            placeholder-text: "e.g. www.cloudflare.com";
-                            text <=> sni_input;
-                            height: 44px;
-                        }
-                        
+                        LineEdit { placeholder-text: "e.g. www.cloudflare.com"; text <=> sni_input; height: 44px; }
                         Text { text: "Quick Presets"; font-size: 12px; font-weight: 600; color: Theme.text; margin-top: 8px; }
                         GridLayout {
                             spacing: 8px;
@@ -193,120 +150,62 @@ export component AppWindow inherits Window {
                                 clicked => { sni_preset_selected(preset); }
                             }
                         }
-                        
                         Text { text: "Used as TLS Server Name Indication to bypass DPI"; font-size: 10px; color: Theme.text-muted; wrap: word-wrap; }
                     }
                 }
 
-                // ── Bridge Section ─────────────────────────────────────────
+                // Bridge Section
                 Rectangle {
                     background: Theme.card;
                     border-radius: 12px;
                     border-width: 1px;
                     border-color: Theme.border;
-                    
                     VerticalBox {
                         padding: 16px;
                         spacing: 12px;
-                        
                         Text { text: "🌉 BRIDGE LINE"; font-size: 12px; font-weight: 700; color: Theme.text-muted; letter-spacing: 1px; }
-                        TextEdit {
-                            text <=> bridge_input;
-                            font-size: 11px;
-                            preferred-height: 80px;
-                            font-family: "monospace";
-                        }
-                        
+                        TextEdit { text <=> bridge_input; font-size: 11px; preferred-height: 80px; font-family: "monospace"; }
                         HorizontalBox {
                             spacing: 8px;
-                            Button {
-                                text: "📋 Use Preset";
-                                small: true;
-                                clicked => {
-                                    // Will be handled by callback
-                                }
-                            }
-                            Button {
-                                text: "🌐 Fetch from BridgeDB";
-                                small: true;
-                                clicked => { fetch_bridge(); }
-                            }
+                            Button { text: "📋 Use Preset"; small: true; clicked => { /* handled by callback */ } }
+                            Button { text: "🌐 Fetch from BridgeDB"; small: true; clicked => { fetch_bridge(); } }
                         }
-                        
                         Text { text: "WebTunnel, obfs4, meek-azure, or direct"; font-size: 10px; color: Theme.text-muted; }
                     }
                 }
 
-                // ── Security Options ───────────────────────────────────────
+                // Security Options
                 Rectangle {
                     background: Theme.card;
                     border-radius: 12px;
                     border-width: 1px;
                     border-color: Theme.border;
-                    
                     VerticalBox {
                         padding: 16px;
                         spacing: 12px;
-                        
                         Text { text: "🛡️ SECURITY"; font-size: 12px; font-weight: 700; color: Theme.text-muted; letter-spacing: 1px; }
-                        
-                        HorizontalBox {
-                            alignment: space-between;
-                            VerticalBox {
-                                Text { text: "Kill Switch"; font-size: 14px; color: Theme.text; }
-                                Text { text: "Block all traffic if VPN drops"; font-size: 10px; color: Theme.text-muted; }
-                            }
-                            CheckBox { checked <=> kill_switch; }
-                        }
-                        
-                        HorizontalBox {
-                            alignment: space-between;
-                            VerticalBox {
-                                Text { text: "DNS over Tor"; font-size: 14px; color: Theme.text; }
-                                Text { text: "Route DNS through Tor network"; font-size: 10px; color: Theme.text-muted; }
-                            }
-                            CheckBox { checked <=> dns_over_tor; }
-                        }
-                        
-                        HorizontalBox {
-                            alignment: space-between;
-                            VerticalBox {
-                                Text { text: "Auto-reconnect"; font-size: 14px; color: Theme.text; }
-                                Text { text: "Reconnect automatically on drop"; font-size: 10px; color: Theme.text-muted; }
-                            }
-                            CheckBox { checked <=> auto_reconnect; }
-                        }
+                        HorizontalBox { alignment: space-between; VerticalBox { Text { text: "Kill Switch"; font-size: 14px; color: Theme.text; } Text { text: "Block all traffic if VPN drops"; font-size: 10px; color: Theme.text-muted; } } CheckBox { checked <=> kill_switch; } }
+                        HorizontalBox { alignment: space-between; VerticalBox { Text { text: "DNS over Tor"; font-size: 14px; color: Theme.text; } Text { text: "Route DNS through Tor network"; font-size: 10px; color: Theme.text-muted; } } CheckBox { checked <=> dns_over_tor; } }
+                        HorizontalBox { alignment: space-between; VerticalBox { Text { text: "Auto-reconnect"; font-size: 14px; color: Theme.text; } Text { text: "Reconnect automatically on drop"; font-size: 10px; color: Theme.text-muted; } } CheckBox { checked <=> auto_reconnect; } }
                     }
                 }
 
-                // ── Log Section ───────────────────────────────────────────
+                // Log Section
                 Rectangle {
                     background: Theme.card;
                     border-radius: 12px;
                     border-width: 1px;
                     border-color: Theme.border;
-                    
                     VerticalBox {
                         padding: 16px;
                         spacing: 12px;
-                        
-                        HorizontalBox {
-                            alignment: space-between;
-                            Text { text: "📋 CONNECTION LOG"; font-size: 12px; font-weight: 700; color: Theme.text-muted; letter-spacing: 1px; }
-                            HorizontalBox {
-                                spacing: 8px;
-                                Button { text: "🔄"; small: true; clicked => { refresh_logs(); } }
-                                Button { text: "🗑️"; small: true; clicked => { clear_logs(); } }
-                            }
-                        }
-                        
+                        HorizontalBox { alignment: space-between; Text { text: "📋 CONNECTION LOG"; font-size: 12px; font-weight: 700; color: Theme.text-muted; letter-spacing: 1px; } HorizontalBox { spacing: 8px; Button { text: "🔄"; small: true; clicked => { refresh_logs(); } } Button { text: "🗑️"; small: true; clicked => { clear_logs(); } } } }
                         Rectangle {
                             background: Theme.bg;
                             border-radius: 8px;
                             border-width: 1px;
                             border-color: Theme.border;
                             height: 120px;
-                            
                             ScrollView {
                                 Text {
                                     text: log_text == "" ? "Ready. Click CONNECT to start.\n" : log_text;
@@ -321,18 +220,16 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                // ── About Section ─────────────────────────────────────────
+                // About Section
                 Rectangle {
                     background: Theme.card;
                     border-radius: 12px;
                     border-width: 1px;
                     border-color: Theme.border;
-                    
                     VerticalBox {
                         padding: 16px;
                         spacing: 8px;
                         alignment: center;
-                        
                         Text { text: "AIX VPN v0.1.0"; font-size: 12px; color: Theme.text-muted; }
                         Text { text: "SNI + Tor Routing Engine"; font-size: 10px; color: Theme.text-muted; }
                         Text { text: "github.com/i7m7r8/aix"; font-size: 10px; color: Theme.accent; }

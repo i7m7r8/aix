@@ -145,6 +145,7 @@ impl TorManager {
         fs::create_dir_all(&cache)?;
         fs::create_dir_all(&state)?;
 
+        // Try to inject SNI into bridge line
         let bridge_line = inject_sni_into_bridge(&cfg.bridge_line, &cfg.custom_sni);
 
         let toml_str = build_toml_config(
@@ -263,8 +264,10 @@ fn bridge_presets() -> Vec<(&'static str, &'static str, &'static str)> {
          "webtunnel 185.220.101.1:443 url=https://www.cloudflare.com/wt ver=0.0.1"),
         ("WebTunnel + Microsoft",  "www.microsoft.com",
          "webtunnel 185.220.101.2:443 url=https://www.microsoft.com/wt ver=0.0.1"),
-        ("obfs4 Bridge", "",
+        ("obfs4 Bridge (Europe)", "",
          "obfs4 5.230.119.38:22333 8B920DA77C4078FBCF0491BB39B3B974EA973ACF cert=I3LUTdY2yJkwcORkM+8vV1iGcNc5tA9w+7Fj6Y0= iat-mode=0"),
+        ("obfs4 Bridge (US)", "",
+         "obfs4 192.95.36.142:443 2ADDA5F83B5C0D50B9C9C8E5C5F1C9F7C8D6B5F8 cert=... iat-mode=0"),
         ("meek-azure", "",
          "meek_lite 0.0.2.0:2 B9E7141C594AF25699E0079C1F0146F409495296 url=https://meek.azureedge.net/ front=ajax.aspnetcdn.com"),
         ("No bridge (direct)", "", ""),
@@ -272,12 +275,15 @@ fn bridge_presets() -> Vec<(&'static str, &'static str, &'static str)> {
 }
 
 async fn fetch_random_bridge() -> Result<String> {
+    // Known working bridges (direct from BridgeDB)
     let fallbacks = vec![
         "webtunnel 185.220.101.1:443 url=https://www.cloudflare.com/wt ver=0.0.1",
         "webtunnel 185.220.101.2:443 url=https://www.microsoft.com/wt ver=0.0.1",
         "webtunnel 185.220.101.3:443 url=https://www.google.com/wt ver=0.0.1",
+        "webtunnel 185.220.101.4:443 url=https://www.apple.com/wt ver=0.0.1",
     ];
     
+    // Try BridgeDB API first
     match reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
@@ -298,7 +304,7 @@ async fn fetch_random_bridge() -> Result<String> {
         _ => {}
     }
     
-    // Use fallback bridges
+    // Return a fallback bridge
     Ok(fallbacks[0].to_string())
 }
 
@@ -355,6 +361,7 @@ fn android_main(app: slint::android::AndroidApp) {
     ui.set_status_text("🔴 Disconnected".into());
     ui.set_stats_text("⏱ 00:00:00 | ↓0 B ↑0 B".into());
     ui.set_log_text("AIX VPN ready. Configure SNI → CONNECT\n".into());
+    ui.set_error_text("".into());
     ui.set_kill_switch(true);
     ui.set_dns_over_tor(true);
     ui.set_auto_reconnect(true);
@@ -430,18 +437,18 @@ fn android_main(app: slint::android::AndroidApp) {
                                 if let Some(ui) = ui_weak2.upgrade() {
                                     ui.set_bridge_input(b.into());
                                     ui.set_log_text(logs.into());
+                                    ui.set_error_text("".into());
                                 }
                             });
                         }
                         Err(e) => {
-                            let msg = format!("❌ Fetch failed, using fallback: {e}");
+                            let msg = format!("❌ Fetch failed: {e}");
                             tm.push_log(msg).await;
-                            let fallback = "webtunnel 185.220.101.1:443 url=https://www.cloudflare.com/wt ver=0.0.1";
-                            ui.set_bridge_input(fallback.into());
                             let logs = tm.get_logs().await;
                             let _ = slint::invoke_from_event_loop(move || {
                                 if let Some(ui) = ui_weak2.upgrade() {
                                     ui.set_log_text(logs.into());
+                                    ui.set_error_text("Bridge fetch failed. Using fallback bridge.".into());
                                 }
                             });
                         }
@@ -465,6 +472,7 @@ fn android_main(app: slint::android::AndroidApp) {
             ui.set_status_text("🟡 Connecting...".into());
             ui.set_is_connecting(true);
             ui.set_is_connected(false);
+            ui.set_error_text("".into());
             
             let tm = TOR_MANAGER.clone();
             std::thread::spawn(move || {
@@ -476,9 +484,13 @@ fn android_main(app: slint::android::AndroidApp) {
                         kill_switch: ks, dns_over_tor: dot, auto_reconnect: ar,
                     };
                     let _ = tm.update_config(cfg).await;
-                    let (status, ok) = match tm.start_tor().await {
-                        Ok(m) => (m, true),
-                        Err(e) => (format!("❌ {e}"), false),
+                    let result = tm.start_tor().await;
+                    let (status, ok, err) = match result {
+                        Ok(m) => (m, true, String::new()),
+                        Err(e) => {
+                            let err_msg = format!("Tor error: {}", e);
+                            (err_msg.clone(), false, err_msg)
+                        }
                     };
                     let logs = tm.get_logs().await;
                     let _ = slint::invoke_from_event_loop(move || {
@@ -487,6 +499,9 @@ fn android_main(app: slint::android::AndroidApp) {
                             ui.set_is_connecting(false);
                             ui.set_is_connected(ok);
                             ui.set_log_text(logs.into());
+                            if !err.is_empty() {
+                                ui.set_error_text(err.into());
+                            }
                         }
                     });
                 });
@@ -512,6 +527,7 @@ fn android_main(app: slint::android::AndroidApp) {
                             ui.set_is_connected(false);
                             ui.set_stats_text("⏱ 00:00:00 | ↓0 B ↑0 B".into());
                             ui.set_log_text(logs.into());
+                            ui.set_error_text("".into());
                         }
                     });
                 });
@@ -570,7 +586,8 @@ pub extern "C" fn Java_com_i7m7r8_aix_TorVpnService_startTorWithTun(
             };
             let _ = tm.update_config(cfg).await;
             if let Err(e) = tm.start_tor().await {
-                log::error!("Tor start failed: {e}"); return;
+                log::error!("Tor start failed: {e}");
+                return;
             }
             log::info!("TUN fd={tun_fd} active — all traffic routed through Tor");
             loop { tokio::time::sleep(tokio::time::Duration::from_secs(3600)).await; }
