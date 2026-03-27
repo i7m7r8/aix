@@ -196,16 +196,8 @@ impl TorManager {
         self.push_log("🔴 Tor stopped".into()).await;
     }
 
-    pub async fn new_circuit(&self) -> Result<()> {
-        let guard = self.client.lock().await;
-        if let Some(client) = guard.as_ref() {
-            client.retire_all_circuits().await?;
-            self.push_log("♻️  New Tor circuit requested".into()).await;
-            Ok(())
-        } else {
-            Err(anyhow::anyhow!("Not connected"))
-        }
-    }
+    // new_circuit removed because `retire_all_circuits` not available in arti 0.40
+    // (we'll keep the button as a no‑op)
 
     pub async fn is_connected(&self) -> bool {
         self.client.lock().await.is_some()
@@ -517,7 +509,7 @@ fn android_main(app: slint::android::AndroidApp) {
         });
     }
 
-    // New circuit — FIX: capture ui_weak before the closure
+    // New circuit — no‑op (feature not available in arti 0.40)
     {
         let ui_weak = ui_weak.clone();
         ui.on_new_circuit(move || {
@@ -526,10 +518,7 @@ fn android_main(app: slint::android::AndroidApp) {
             std::thread::spawn(move || {
                 let rt = tokio::runtime::Runtime::new().unwrap();
                 rt.block_on(async {
-                    match tm.new_circuit().await {
-                        Ok(_) => {}
-                        Err(e) => { tm.push_log(format!("❌ Circuit error: {e}")).await; }
-                    }
+                    tm.push_log("⚠️  New circuit not available in this arti version".into()).await;
                     let logs = tm.get_logs().await;
                     let _ = slint::invoke_from_event_loop(move || {
                         if let Some(ui) = ui_weak2.upgrade() {
