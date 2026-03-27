@@ -51,12 +51,12 @@ export component AppWindow inherits Window {
         Rectangle {
             height: 56px;
             background: Theme.surface;
-            border-bottom-width: 1px;
-            border-color: Theme.border;
+            
             HorizontalBox {
                 padding-left: 16px;
                 padding-right: 16px;
                 alignment: space-between;
+                
                 HorizontalLayout {
                     spacing: 8px;
                     alignment: center;
@@ -69,6 +69,14 @@ export component AppWindow inherits Window {
                     Rectangle { width: 8px; height: 8px; border-radius: 4px; background: is_connected ? Theme.success : (is_connecting ? Theme.warning : Theme.danger); }
                     Text { text: status_text; font-size: 11px; color: is_connected ? Theme.success : (is_connecting ? Theme.warning : Theme.text-muted); }
                 }
+            }
+            
+            // bottom border
+            Rectangle {
+                height: 1px;
+                background: Theme.border;
+                y: parent.height - 1px;
+                width: 100%;
             }
         }
 
@@ -145,12 +153,16 @@ export component AppWindow inherits Window {
                         spacing: 12px;
                         Text { text: "🎯 SNI HOSTNAME"; font-size: 12px; font-weight: 700; color: Theme.text-muted; letter-spacing: 1px; }
                         LineEdit { placeholder-text: "e.g. www.cloudflare.com"; text <=> sni_input; height: 44px; }
-                        Text { text: "Quick Presets"; font-size: 12px; font-weight: 600; color: Theme.text; margin-top: 8px; }
+                        
+                        // Presets label with spacing
+                        Rectangle { height: 8px; }
+                        Text { text: "Quick Presets"; font-size: 12px; font-weight: 600; color: Theme.text; }
                         GridLayout {
                             spacing: 8px;
                             for preset in sni_presets : Button {
                                 text: preset;
-                                small: true;
+                                height: 32px;
+                                min-width: 80px;
                                 clicked => { sni_preset_selected(preset); }
                             }
                         }
@@ -168,11 +180,15 @@ export component AppWindow inherits Window {
                         padding: 16px;
                         spacing: 12px;
                         Text { text: "🌉 BRIDGE LINE"; font-size: 12px; font-weight: 700; color: Theme.text-muted; letter-spacing: 1px; }
-                        TextEdit { text <=> bridge_input; font-size: 11px; preferred-height: 80px; font-family: "monospace"; }
+                        LineEdit {
+                            text <=> bridge_input;
+                            font-size: 11px;
+                            height: 80px;
+                        }
                         HorizontalBox {
                             spacing: 8px;
-                            Button { text: "📋 Use Preset"; small: true; clicked => { /* handled by callback */ } }
-                            Button { text: "🌐 Fetch from BridgeDB"; small: true; clicked => { fetch_bridge(); } }
+                            Button { text: "📋 Use Preset"; height: 32px; clicked => { /* handled by callback */ } }
+                            Button { text: "🌐 Fetch from BridgeDB"; height: 32px; clicked => { fetch_bridge(); } }
                         }
                         Text { text: "WebTunnel, obfs4, meek-azure, or direct"; font-size: 10px; color: Theme.text-muted; }
                     }
@@ -203,7 +219,7 @@ export component AppWindow inherits Window {
                     VerticalBox {
                         padding: 16px;
                         spacing: 12px;
-                        HorizontalBox { alignment: space-between; Text { text: "📋 CONNECTION LOG"; font-size: 12px; font-weight: 700; color: Theme.text-muted; letter-spacing: 1px; } HorizontalBox { spacing: 8px; Button { text: "🔄"; small: true; clicked => { refresh_logs(); } } Button { text: "🗑️"; small: true; clicked => { clear_logs(); } } } }
+                        HorizontalBox { alignment: space-between; Text { text: "📋 CONNECTION LOG"; font-size: 12px; font-weight: 700; color: Theme.text-muted; letter-spacing: 1px; } HorizontalBox { spacing: 8px; Button { text: "🔄"; height: 32px; clicked => { refresh_logs(); } } Button { text: "🗑️"; height: 32px; clicked => { clear_logs(); } } } }
                         Rectangle {
                             background: Theme.bg;
                             border-radius: 8px;
