@@ -31,7 +31,7 @@ component PillButton inherits Rectangle {
     callback clicked;
 
     height: small ? 36px : 48px;
-    border-radius: height / 2;    // pill shape
+    border-radius: self.height / 2;    // pill shape
     background: btn-color;
 
     animate background { duration: 150ms; }
