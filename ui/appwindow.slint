@@ -1,4 +1,4 @@
-import { Button, CheckBox, ScrollView, TabWidget, VerticalBox, HorizontalBox, LineEdit, GroupBox } from "std-widgets.slint";
+import { Button, CheckBox, ScrollView, TabWidget, VerticalBox, HorizontalBox, LineEdit, GroupBox, GridLayout } from "std-widgets.slint";
 
 export component AppWindow inherits Window {
     title: "AIX VPN";
@@ -97,10 +97,9 @@ export component AppWindow inherits Window {
                         title: "SNI Hostname (TLS bypass)";
                         VerticalBox {
                             spacing: 6px;
-                            // Use a row of buttons instead of ComboBox
-                            HorizontalBox {
+                            // Use GridLayout for wrap‑able buttons
+                            GridLayout {
                                 spacing: 6px;
-                                wrap: true;
                                 for preset in sni_presets : Button {
                                     text: preset;
                                     clicked => { root.sni_preset_selected(preset); }
@@ -117,9 +116,8 @@ export component AppWindow inherits Window {
                         title: "Bridge";
                         VerticalBox {
                             spacing: 6px;
-                            HorizontalBox {
+                            GridLayout {
                                 spacing: 6px;
-                                wrap: true;
                                 for preset in bridge_presets : Button {
                                     text: preset;
                                     clicked => { root.bridge_preset_selected(preset); }
