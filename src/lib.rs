@@ -22,8 +22,6 @@ fn data_dir() -> &'static PathBuf {
     APP_DATA_DIR.get().expect("APP_DATA_DIR not set")
 }
 
-// ── Config ─────────────────────────────────────────────────────────────────
-
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct SniConfig {
     pub enabled: bool,
@@ -48,8 +46,6 @@ impl Default for SniConfig {
         }
     }
 }
-
-// ── Stats ───────────────────────────────────────────────────────────────────
 
 #[derive(Default, Clone)]
 pub struct TrafficStats {
@@ -76,8 +72,6 @@ impl TrafficStats {
         else { format!("{:.2} MB", b as f64 / 1048576.0) }
     }
 }
-
-// ── Manager ─────────────────────────────────────────────────────────────────
 
 pub struct TorManager {
     client: Arc<Mutex<Option<TorClient<PreferredRuntime>>>>,
@@ -202,7 +196,16 @@ impl TorManager {
         self.push_log("🔴 Tor stopped".into()).await;
     }
 
-    // New circuit feature removed (not available in arti 0.40)
+    pub async fn new_circuit(&self) -> Result<()> {
+        let guard = self.client.lock().await;
+        if let Some(client) = guard.as_ref() {
+            client.retire_all_circuits().await?;
+            self.push_log("♻️  New Tor circuit requested".into()).await;
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("Not connected"))
+        }
+    }
 
     pub async fn is_connected(&self) -> bool {
         self.client.lock().await.is_some()
@@ -258,8 +261,6 @@ fn build_toml_config(cache: &str, state: &str, bridge_line: &str) -> String {
 pub static TOR_MANAGER: Lazy<Arc<TorManager>> =
     Lazy::new(|| Arc::new(TorManager::new()));
 
-// ── Presets ──────────────────────────────────────────────────────────────────
-
 fn sni_presets() -> Vec<(&'static str, &'static str)> {
     vec![
         ("Cloudflare",  "www.cloudflare.com"),
@@ -300,8 +301,6 @@ async fn fetch_random_bridge() -> Result<String> {
         .get("https://bridges.torproject.org/bridges?transport=webtunnel")
         .header("User-Agent", "AIX-VPN/0.1")
         .send().await?;
-
-    // Get status before moving resp
     let status = resp.status();
     if status.is_success() {
         let body = resp.text().await?;
@@ -311,8 +310,6 @@ async fn fetch_random_bridge() -> Result<String> {
     }
     Err(anyhow::anyhow!("No bridge returned (status: {})", status))
 }
-
-// ── android_main ─────────────────────────────────────────────────────────────
 
 #[unsafe(no_mangle)]
 fn android_main(app: slint::android::AndroidApp) {
@@ -354,7 +351,6 @@ fn android_main(app: slint::android::AndroidApp) {
         });
     }
 
-    // Populate preset lists
     let sni_names: Vec<slint::SharedString> =
         sni_presets().iter().map(|(n, _)| (*n).into()).collect();
     let bridge_names: Vec<slint::SharedString> =
@@ -521,23 +517,29 @@ fn android_main(app: slint::android::AndroidApp) {
         });
     }
 
-    // New circuit button removed (not available in arti 0.40)
-    // We'll keep the callback but make it a no-op
-    ui.on_new_circuit(move || {
-        let tm = TOR_MANAGER.clone();
-        std::thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(async {
-                tm.push_log("⚠️  New circuit not available in this arti version".into()).await;
-                let logs = tm.get_logs().await;
-                let _ = slint::invoke_from_event_loop(move || {
-                    if let Some(ui) = ui.as_weak().upgrade() {
-                        ui.set_log_text(logs.into());
+    // New circuit — FIX: capture ui_weak before the closure
+    {
+        let ui_weak = ui_weak.clone();
+        ui.on_new_circuit(move || {
+            let tm = TOR_MANAGER.clone();
+            let ui_weak2 = ui_weak.clone();
+            std::thread::spawn(move || {
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                rt.block_on(async {
+                    match tm.new_circuit().await {
+                        Ok(_) => {}
+                        Err(e) => { tm.push_log(format!("❌ Circuit error: {e}")).await; }
                     }
+                    let logs = tm.get_logs().await;
+                    let _ = slint::invoke_from_event_loop(move || {
+                        if let Some(ui) = ui_weak2.upgrade() {
+                            ui.set_log_text(logs.into());
+                        }
+                    });
                 });
             });
         });
-    });
+    }
 
     // Refresh logs
     {
@@ -572,8 +574,6 @@ fn android_main(app: slint::android::AndroidApp) {
 
     ui.run().unwrap();
 }
-
-// ── JNI bridge for TorVpnService ─────────────────────────────────────────────
 
 #[no_mangle]
 pub extern "C" fn Java_com_i7m7r8_aix_TorVpnService_startTorWithTun(

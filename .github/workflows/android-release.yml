@@ -8,7 +8,9 @@ on:
 jobs:
   build-android:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     strategy:
+      fail-fast: false
       matrix:
         target:
           - aarch64-linux-android
@@ -23,8 +25,19 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.target }}-cargo-
+
       - name: Install cargo-apk
-        run: cargo install cargo-apk
+        run: cargo install cargo-apk --locked
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -49,14 +62,13 @@ jobs:
 
       - name: Build APK
         run: cargo apk build --release --target ${{ matrix.target }}
+        env:
+          ANDROID_NDK_ROOT: ${{ env.ANDROID_NDK_ROOT }}
 
-      - name: Rename APK
+      - name: Rename & sign APK
         run: |
           mkdir -p out
           cp target/release/apk/aix.apk out/aix-${{ matrix.target }}.apk
-
-      - name: Sign APK
-        run: |
           BUILD_TOOLS=$(ls $ANDROID_HOME/build-tools | sort -V | tail -n1)
           $ANDROID_HOME/build-tools/$BUILD_TOOLS/apksigner sign \
             --ks keystore.jks \
@@ -75,6 +87,8 @@ jobs:
   release:
     needs: build-android
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -84,16 +98,34 @@ jobs:
           path: apks
           merge-multiple: true
 
-      - name: Get short SHA
-        id: sha
-        run: echo "short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+      - name: Build universal APK (zip of all ABIs)
+        run: |
+          cd apks
+          zip aix-universal.zip *.apk
+
+      - name: Get version info
+        id: info
+        run: |
+          echo "short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-${{ steps.sha.outputs.short }}
-          name: "AIX Build ${{ steps.sha.outputs.short }}"
-          body: "Auto-release from commit ${{ github.sha }}"
-          files: apks/*.apk
+          tag_name: build-${{ steps.info.outputs.short }}
+          name: "AIX ${{ steps.info.outputs.date }} (${{ steps.info.outputs.short }})"
+          body: |
+            ## AIX VPN Auto-Release
+            Commit: `${{ github.sha }}`
+
+            | File | ABI |
+            |------|-----|
+            | aix-aarch64-linux-android-signed.apk | ARM64 (armv8a) |
+            | aix-armv7-linux-androideabi-signed.apk | ARMv7 |
+            | aix-x86_64-linux-android-signed.apk | x86_64 |
+            | aix-universal.zip | All ABIs |
+          files: |
+            apks/*.apk
+            apks/aix-universal.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
